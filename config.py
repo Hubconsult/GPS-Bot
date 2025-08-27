@@ -1,14 +1,15 @@
 # config.py
 
-# токен нового бота от BotFather
 import os
 from dotenv import load_dotenv
 
 load_dotenv()  # загружает переменные из .env
 
+# токен нового бота от BotFather
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = BOT_TOKEN  # 👈 добавляем алиас для совместимости с bot.py
 
-if not BOT_TOKEN:
+if not TOKEN:
     raise ValueError("❌ Ошибка: переменная BOT_TOKEN не найдена. Проверь .env файл!")
 
 # лимит бесплатных сообщений
