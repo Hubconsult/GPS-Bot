@@ -1,14 +1,23 @@
+cat > settings.py <<'PY'
 import os
 from dotenv import load_dotenv
 
+# Загружаем .env
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-TOKEN = BOT_TOKEN  # 👈 добавляем TOKEN, чтобы bot.py его видел
-
-if not TOKEN:
-    raise ValueError("❌ Ошибка: переменная BOT_TOKEN не найдена. Проверь .env файл!")
-
+# То, что ждёт bot.py
+TOKEN = os.getenv("BOT_TOKEN")
 FREE_LIMIT = 10
 PAY_BUTTON_URL = "https://yookassa.ru/"
-CONSULT_LINK = "https://t.me/HubConsult"
+
+# Проверка наличия токена
+if not TOKEN:
+    raise ValueError("❌ BOT_TOKEN не найден в .env — проверь файл .env в корне проекта")
+PY
+
+# Чистим кэши и проверяем, что все три атрибута есть
+find . -type d -name "__pycache__" -exec rm -r {} +
+python -c "import settings; print('HAS:', hasattr(settings,'TOKEN'), hasattr(settings,'FREE_LIMIT'), hasattr(settings,'PAY_BUTTON_URL')); print('TOKEN prefix:', (settings.TOKEN or '')[:8], 'FREE_LIMIT:', settings.FREE_LIMIT, 'PAY URL:', settings.PAY_BUTTON_URL)"
+
+# Запуск бота
+python bot.py
