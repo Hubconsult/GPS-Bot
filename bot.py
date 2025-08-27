@@ -3,7 +3,7 @@ from telebot import types
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
-from config import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
+from settings import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
 
 # --- Ключи ---
 load_dotenv()
@@ -137,3 +137,4 @@ def fallback(m):
 # --- Запуск ---
 if __name__ == "__main__":
     bot.infinity_polling(skip_pending=True)
+
