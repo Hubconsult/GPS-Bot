@@ -1,20 +1,29 @@
-import telebot
-from telebot import types
 import os
 from dotenv import load_dotenv
+import telebot
+from telebot import types
 from openai import OpenAI
-from settings import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
+
+# --- Конфиг: импорт из settings с фолбэком на .env ---
+try:
+    from settings import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
+except Exception:
+    load_dotenv()
+    TOKEN = os.getenv("BOT_TOKEN")
+    FREE_LIMIT = int(os.getenv("FREE_LIMIT", "10"))
+    PAY_BUTTON_URL = os.getenv("PAY_BUTTON_URL", "https://yookassa.ru/")
 
 # --- Ключи ---
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+if not TOKEN:
+    raise ValueError("BOT_TOKEN не найден (ни в settings, ни в .env).")
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY не найден в .env.")
+
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-# словари для хранения данных
-user_counters = {}
-user_moods = {}
 
 # --- Клавиатуры ---
 def main_menu():
@@ -137,4 +146,5 @@ def fallback(m):
 # --- Запуск ---
 if __name__ == "__main__":
     bot.infinity_polling(skip_pending=True)
+
 
