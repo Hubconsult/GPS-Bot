@@ -1,8 +1,16 @@
 import telebot
 from telebot import types
+import os
+from dotenv import load_dotenv
+from openai import OpenAI
 from config import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
 
+# --- Ключи ---
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # словари для хранения данных
 user_counters = {}
@@ -32,6 +40,20 @@ def check_limit(chat_id) -> bool:
         )
         return False
     return True
+
+# --- GPT-5 Mini ответ ---
+def gpt_answer(user_text: str) -> str:
+    try:
+        response = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {"role": "system", "content": "Ты — карманный психолог. Отвечай тепло, поддерживающе, развёрнуто и понятно."},
+                {"role": "user", "content": user_text}
+            ]
+        )
+        return response.choices[0].message["content"]
+    except Exception as e:
+        return f"⚠️ Ошибка при обращении к GPT: {e}"
 
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
@@ -104,12 +126,14 @@ def pay_button(m):
 def back_to_menu(m):
     bot.send_message(m.chat.id, "Главное меню:", reply_markup=main_menu())
 
-# fallback — любой другой текст
+# --- fallback — если текст не совпал с меню, отправляем в GPT ---
 @bot.message_handler(func=lambda msg: True)
 def fallback(m):
     if not check_limit(m.chat.id): return
     user_counters[m.chat.id] += 1
-    bot.send_message(m.chat.id, "Я рядом. Выбери действие в меню 👇", reply_markup=main_menu())
+    answer = gpt_answer(m.text)  # GPT-5 Mini отвечает
+    bot.send_message(m.chat.id, answer, reply_markup=main_menu())
 
+# --- Запуск ---
 if __name__ == "__main__":
     bot.infinity_polling(skip_pending=True)
