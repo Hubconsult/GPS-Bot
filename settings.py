@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 import telebot
-from telebot import types
 from openai import OpenAI
 
 # Загружаем переменные из .env
@@ -19,3 +18,6 @@ if not OPENAI_API_KEY:
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Explicit re-exports for clearer "from settings import ..." usage
+__all__ = ["bot", "client", "FREE_LIMIT", "PAY_BUTTON_URL"]
