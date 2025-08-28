@@ -1,21 +1,12 @@
-import os
-import telebot
 from telebot import types
-from openai import OpenAI
 
 # --- Конфиг: значения централизованы в settings.py ---
-from settings import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
+from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL
 
-# --- Ключи ---
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not TOKEN:
-    raise ValueError("BOT_TOKEN не найден (ни в settings, ни в .env).")
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY не найден в .env.")
-
-bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
-client = OpenAI(api_key=OPENAI_API_KEY)
+# --- Хранилища состояния пользователей ---
+user_counters = {}
+user_moods = {}
 
 # --- Клавиатуры ---
 def main_menu():
