@@ -1,20 +1,12 @@
 import os
-from dotenv import load_dotenv
 import telebot
 from telebot import types
 from openai import OpenAI
 
-# --- Конфиг: импорт из settings с фолбэком на .env ---
-try:
-    from settings import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
-except Exception:
-    load_dotenv()
-    TOKEN = os.getenv("BOT_TOKEN")
-    FREE_LIMIT = int(os.getenv("FREE_LIMIT", "10"))
-    PAY_BUTTON_URL = os.getenv("PAY_BUTTON_URL", "https://yookassa.ru/")
+# --- Конфиг: значения централизованы в settings.py ---
+from settings import TOKEN, FREE_LIMIT, PAY_BUTTON_URL
 
 # --- Ключи ---
-load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not TOKEN:

@@ -5,9 +5,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuration values used by bot.py
+# They can be overridden via environment variables or a .env file
 TOKEN = os.getenv("BOT_TOKEN")
-FREE_LIMIT = 10
-PAY_BUTTON_URL = "https://yookassa.ru/"
+FREE_LIMIT = int(os.getenv("FREE_LIMIT", "10"))
+PAY_BUTTON_URL = os.getenv("PAY_BUTTON_URL", "https://yookassa.ru/")
 
 # Ensure the bot token is provided
 if not TOKEN:
