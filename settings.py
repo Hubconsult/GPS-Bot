@@ -1,10 +1,11 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import telebot
 from openai import OpenAI
 
-# Загружаем переменные из .env
-load_dotenv()
+# Загружаем переменные из .env рядом с файлом
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -15,6 +16,7 @@ if not TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env")
 if not OPENAI_API_KEY:
     raise ValueError("❌ OPENAI_API_KEY не найден в .env")
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 client = OpenAI(api_key=OPENAI_API_KEY)
