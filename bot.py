@@ -51,7 +51,8 @@ def gpt_answer(user_text: str) -> str:
                 {"role": "user", "content": user_text}
             ]
         )
-        return response.choices[0].message.content
+        # ✅ Исправленный доступ к содержимому
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"⚠️ Ошибка при обращении к GPT: {e}"
 
@@ -137,5 +138,6 @@ def fallback(m):
 # --- Запуск ---
 if __name__ == "__main__":
     bot.infinity_polling(skip_pending=True)
+
 
 
