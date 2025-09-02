@@ -33,6 +33,14 @@ def check_limit(chat_id) -> bool:
         return False
     return True
 
+# --- Helpers ---
+def increment_counter(chat_id) -> None:
+    """Increase the message counter for a user.
+
+    Creates the counter if it's the first interaction without requiring /start.
+    """
+    user_counters[chat_id] = user_counters.get(chat_id, 0) + 1
+
 # --- GPT-5 Mini ответ ---
 def gpt_answer(user_text: str) -> str:
     try:
@@ -64,7 +72,7 @@ def start(m):
 @bot.message_handler(func=lambda msg: msg.text == "Чек-ин настроения")
 def mood_start(m):
     if not check_limit(m.chat.id): return
-    user_counters[m.chat.id] += 1
+    increment_counter(m.chat.id)
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=4, one_time_keyboard=True)
     kb.add("😊", "😟", "😴", "😡")
     kb.add("⬅️ Назад")
@@ -73,14 +81,14 @@ def mood_start(m):
 @bot.message_handler(func=lambda msg: msg.text in ["😊", "😟", "😴", "😡"])
 def mood_save(m):
     if not check_limit(m.chat.id): return
-    user_counters[m.chat.id] += 1
+    increment_counter(m.chat.id)
     user_moods.setdefault(m.chat.id, []).append(m.text)
     bot.send_message(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text == "Быстрая помощь")
 def quick_help(m):
     if not check_limit(m.chat.id): return
-    user_counters[m.chat.id] += 1
+    increment_counter(m.chat.id)
     bot.send_message(
         m.chat.id,
         "🧭 <b>Быстрая помощь</b>\n"
@@ -93,7 +101,7 @@ def quick_help(m):
 @bot.message_handler(func=lambda msg: msg.text == "Статистика")
 def stats(m):
     if not check_limit(m.chat.id): return
-    user_counters[m.chat.id] += 1
+    increment_counter(m.chat.id)
     moods = user_moods.get(m.chat.id, [])
     counts = {e: moods.count(e) for e in ["😊", "😟", "😴", "😡"]}
     bot.send_message(
@@ -122,7 +130,7 @@ def back_to_menu(m):
 @bot.message_handler(func=lambda msg: True)
 def fallback(m):
     if not check_limit(m.chat.id): return
-    user_counters[m.chat.id] += 1
+    increment_counter(m.chat.id)
     answer = gpt_answer(m.text)  # GPT-5 Mini отвечает
     bot.send_message(m.chat.id, answer, reply_markup=main_menu())
 
