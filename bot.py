@@ -51,7 +51,7 @@ def gpt_answer(user_text: str) -> str:
                 {"role": "user", "content": user_text}
             ]
         )
-        return response.choices[0].message["content"]
+        return response.choices[0].message.content
     except Exception as e:
         return f"⚠️ Ошибка при обращении к GPT: {e}"
 
