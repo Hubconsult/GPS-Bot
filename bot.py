@@ -1,4 +1,5 @@
 from telebot import types
+import re
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, SYSTEM_PROMPT
@@ -42,40 +43,44 @@ def increment_counter(chat_id) -> None:
     """
     user_counters[chat_id] = user_counters.get(chat_id, 0) + 1
 
+# --- Укорачивание ответа до N предложений ---
+def shorten_reply(text: str, max_sentences: int = 2) -> str:
+    sentences = re.split(r'(?<=[.?!])\s+', text)
+    return " ".join(sentences[:max_sentences]).strip()
+
+
 # --- GPT-5 Mini ответ с историей ---
 def gpt_answer(chat_id: int, user_text: str) -> str:
     try:
-        # Добавляем сообщение пользователя в историю
         history = user_histories.get(chat_id, [])
         history.append({"role": "user", "content": user_text})
-
-        # Ограничиваем историю 5 последними сообщениями
         history = history[-5:]
         user_histories[chat_id] = history
 
-        # Формируем запрос к GPT с системным промптом
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT}
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "assistant",
+                "content": "Понимаю тебя. Это непросто. Скажи, это больше похоже на тревогу или на пустоту?",
+            },
+            {
+                "role": "assistant",
+                "content": "Я рядом. Скажи, когда это чувство приходит чаще — утром или вечером?",
+            },
         ] + history
 
         response = client.chat.completions.create(
             model="gpt-5-mini",
-            messages=messages
+            messages=messages,
         )
 
         reply = response.choices[0].message.content.strip()
+        reply = shorten_reply(reply, 2)
 
-        # --- Жёсткий фильтр на 1-2 предложения ---
-        sentences = reply.replace("?", "?.").replace("!", "!.").split(".")
-        short_reply = ".".join(sentences[:2]).strip()
-        if not short_reply.endswith((".", "?", "!")):
-            short_reply += "?"
-
-        # Добавляем ответ ИИ в историю
-        history.append({"role": "assistant", "content": short_reply})
+        history.append({"role": "assistant", "content": reply})
         user_histories[chat_id] = history[-5:]
 
-        return short_reply
+        return reply
     except Exception as e:
         return f"⚠️ Ошибка при обращении к GPT: {e}"
 
