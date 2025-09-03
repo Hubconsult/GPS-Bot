@@ -4,6 +4,17 @@ import re
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, SYSTEM_PROMPT
 
+# --- Фильтр: оставляем только 1 утверждение + 1 вопрос ---
+def force_short_reply(text: str) -> str:
+    sentences = re.split(r'(?<=[.?!])\s+', text.strip())
+    short = []
+    for s in sentences:
+        if s:
+            short.append(s.strip())
+        if len(short) == 2:
+            break
+    return " ".join(short)
+
 # --- Хранилища состояния пользователей ---
 user_counters = {}
 user_moods = {}
