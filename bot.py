@@ -2,7 +2,7 @@ from telebot import types
 import re
 
 # --- Конфиг: значения централизованы в settings.py ---
-from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, SYSTEM_PROMPT
+from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL
 
 # --- Фильтр: оставляем только 1 утверждение + 1 вопрос ---
 def force_short_reply(text: str) -> str:
@@ -54,10 +54,10 @@ def increment_counter(chat_id) -> None:
     """
     user_counters[chat_id] = user_counters.get(chat_id, 0) + 1
 
-# --- Укорачивание ответа до N предложений ---
-def shorten_reply(text: str, max_sentences: int = 2) -> str:
+# --- Обрезаем ответ GPT до 2 предложений ---
+def force_short_reply(text: str) -> str:
     sentences = re.split(r'(?<=[.?!])\s+', text)
-    return " ".join(sentences[:max_sentences]).strip()
+    return " ".join(sentences[:2]).strip()
 
 
 # --- GPT-5 Mini ответ с историей ---
@@ -69,14 +69,17 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
         user_histories[chat_id] = history
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
             {
-                "role": "assistant",
-                "content": "Понимаю тебя. Это непросто. Скажи, это больше похоже на тревогу или на пустоту?",
+                "role": "system",
+                "content": (
+                    "Ты — друг и собеседник. "
+                    "Отвечай только коротко: одно поддерживающее предложение и один вопрос. "
+                    "Запрещено писать списки, длинные объяснения, несколько вопросов сразу."
+                ),
             },
             {
                 "role": "assistant",
-                "content": "Я рядом. Скажи, когда это чувство приходит чаще — утром или вечером?",
+                "content": "Слышу, что тебе тяжело. Скажи, это больше похоже на усталость или на тревогу?",
             },
         ] + history
 
@@ -86,7 +89,7 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
         )
 
         reply = response.choices[0].message.content.strip()
-        reply = shorten_reply(reply, 2)
+        reply = force_short_reply(reply)  # обрезаем всё длиннее 2 предложений
 
         history.append({"role": "assistant", "content": reply})
         user_histories[chat_id] = history[-5:]
