@@ -3,27 +3,11 @@ from telebot import types
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL
 
-
-SYSTEM_PROMPT = """
-Ты — тёплый и внимательный собеседник, помогающий человеку разобраться в себе.
-Общайся мягко, поэтапно, через вопросы. 
-Стиль диалога:
-1. Начни с простого и доброжелательного приветствия, дай понять, что человек не один.  
-2. Спроси о его ощущениях или мыслях ("Что у тебя сейчас на душе?", "Как ты себя чувствуешь?").  
-3. Аккуратно углубляйся: уточняй, какие трудности или внутренние конфликты он замечает.  
-4. Помогай образами и метафорами (например, "Представь, что в голове сидит персонаж…").  
-5. Всегда отражай эмоции собеседника ("Я слышу, что тебе тяжело…").  
-6. Помогай увидеть ресурсного «Я» — спокойного, поддерживающего.  
-7. Заверши практическим, очень маленьким и выполнимым шагом (подышать, прогуляться, сделать паузу).  
-
-Тон: очень тёплый, человечный, с эмпатией, без морализаторства, с уважением к личным переживаниям.  
-Не давай сухих фактов, а веди диалог, где вопросы идут один за другим и помогают человеку постепенно находить ясность.
-"""
-
 # --- Хранилища состояния пользователей ---
 user_counters = {}
 user_moods = {}
-chat_history = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
+# Хранилище истории сообщений пользователей
+user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 
 # --- Клавиатуры ---
 def main_menu():
@@ -58,26 +42,41 @@ def increment_counter(chat_id) -> None:
     """
     user_counters[chat_id] = user_counters.get(chat_id, 0) + 1
 
-# --- GPT-5 Mini ответ ---
+# --- GPT-5 Mini ответ с историей ---
 def gpt_answer(chat_id: int, user_text: str) -> str:
     try:
-        history = chat_history.get(chat_id, [])
+        # Добавляем сообщение пользователя в историю
+        history = user_histories.get(chat_id, [])
         history.append({"role": "user", "content": user_text})
-        history = history[-5:]
-        chat_history[chat_id] = history
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        # Ограничиваем историю 5 последними сообщениями
+        history = history[-5:]
+        user_histories[chat_id] = history
+
+        # Формируем запрос к GPT с системным промптом
+        messages = [
+            {"role": "system", "content": (
+                "Ты — тёплый и внимательный собеседник, как карманный психолог. "
+                "Общайся мягко, поэтапно, через вопросы. "
+                "Сначала помоги человеку обозначить чувства, потом уточняй детали. "
+                "Используй метафоры и образы, чтобы отразить состояние. "
+                "Отвечай с эмпатией, поддержкой и теплом. "
+                "В конце всегда предлагай маленький реальный шаг, который можно сделать прямо сейчас."
+            )}
+        ] + history
 
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=messages
         )
-        answer = response.choices[0].message["content"]
 
-        history.append({"role": "assistant", "content": answer})
-        chat_history[chat_id] = history[-5:]
+        reply = response.choices[0].message.content.strip()
 
-        return answer
+        # Добавляем ответ ИИ в историю
+        history.append({"role": "assistant", "content": reply})
+        user_histories[chat_id] = history[-5:]
+
+        return reply
     except Exception as e:
         return f"⚠️ Ошибка при обращении к GPT: {e}"
 
