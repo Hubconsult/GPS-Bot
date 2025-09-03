@@ -65,11 +65,17 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
 
         reply = response.choices[0].message.content.strip()
 
+        # --- Жёсткий фильтр на 1-2 предложения ---
+        sentences = reply.replace("?", "?.").replace("!", "!.").split(".")
+        short_reply = ".".join(sentences[:2]).strip()
+        if not short_reply.endswith((".", "?", "!")):
+            short_reply += "?"
+
         # Добавляем ответ ИИ в историю
-        history.append({"role": "assistant", "content": reply})
+        history.append({"role": "assistant", "content": short_reply})
         user_histories[chat_id] = history[-5:]
 
-        return reply
+        return short_reply
     except Exception as e:
         return f"⚠️ Ошибка при обращении к GPT: {e}"
 
