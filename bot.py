@@ -1,7 +1,7 @@
 from telebot import types
 
 # --- Конфиг: значения централизованы в settings.py ---
-from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL
+from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, SYSTEM_PROMPT
 
 # --- Хранилища состояния пользователей ---
 user_counters = {}
@@ -55,14 +55,7 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
 
         # Формируем запрос к GPT с системным промптом
         messages = [
-            {"role": "system", "content": (
-                "Ты — тёплый и внимательный собеседник, как карманный психолог. "
-                "Общайся мягко, поэтапно, через вопросы. "
-                "Сначала помоги человеку обозначить чувства, потом уточняй детали. "
-                "Используй метафоры и образы, чтобы отразить состояние. "
-                "Отвечай с эмпатией, поддержкой и теплом. "
-                "В конце всегда предлагай маленький реальный шаг, который можно сделать прямо сейчас."
-            )}
+            {"role": "system", "content": SYSTEM_PROMPT}
         ] + history
 
         response = client.chat.completions.create(
