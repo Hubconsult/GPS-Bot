@@ -1,6 +1,6 @@
 # tariffs.py
 from rewards import give_smile, give_avatar, give_next_card
-from settings import PAY_BUTTON_URL
+from settings import PAY_URL_HARMONY, PAY_URL_REFLECTION, PAY_URL_TRAVEL
 import datetime
 
 # --- Хранилище активных подписок ---
@@ -14,23 +14,23 @@ TARIFFS = {
         "description": "Первое прикосновение к себе: смайлы и GPT-5 Mini.",
         "starter_reward": give_smile,
         "category": "smiles",
-        "pay_url": PAY_BUTTON_URL,
+        "pay_url": PAY_URL_HARMONY,
     },
     "otrazhenie": {
         "name": "🌿 Отражение",
-        "price": 599,
+        "price": 999,
         "description": "Видеть себя яснее: аватарки и GPT-5 обычный.",
         "starter_reward": give_avatar,
         "category": "avatars",
-        "pay_url": PAY_BUTTON_URL,
+        "pay_url": PAY_URL_REFLECTION,
     },
     "puteshestvie": {
         "name": "🌌 Путешествие",
-        "price": 999,
+        "price": 1999,
         "description": "Глубокое исследование: карточки историй и полный доступ к GPT-5.",
         "starter_reward": give_next_card,
         "category": "cards",
-        "pay_url": PAY_BUTTON_URL,
+        "pay_url": PAY_URL_TRAVEL,
     },
 }
 

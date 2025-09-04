@@ -10,7 +10,9 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 FREE_LIMIT = int(os.getenv("FREE_LIMIT", "10"))
-PAY_BUTTON_URL = os.getenv("PAY_BUTTON_URL", "https://yookassa.ru/")
+PAY_URL_HARMONY = os.getenv("PAY_URL_HARMONY", "https://yookassa.ru/")
+PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION", "https://yookassa.ru/")
+PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL", "https://yookassa.ru/")
 
 # System prompt for the GPT assistant
 SYSTEM_PROMPT = (
@@ -34,7 +36,9 @@ __all__ = [
     "bot",
     "client",
     "FREE_LIMIT",
-    "PAY_BUTTON_URL",
+    "PAY_URL_HARMONY",
+    "PAY_URL_REFLECTION",
+    "PAY_URL_TRAVEL",
     "SYSTEM_PROMPT",
 ]
 
