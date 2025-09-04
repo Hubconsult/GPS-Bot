@@ -113,14 +113,15 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
 def start(m):
     user_counters[m.chat.id] = 0
     user_moods[m.chat.id] = []
-    bot.send_message(
-        m.chat.id,
+    text = (
         "Привет 👋 Я твой <b>Внутренний GPS</b>.\n\n"
         "• Бесплатно доступны <b>10 диалогов</b>\n"
-        "• Подписка: <b>299 ₽/мес.</b>\n\n"
-        "Выбирай действие:",
-        reply_markup=main_menu(),
+        "• Доступные тарифы:\n\n"
     )
+    for key, t in TARIFFS.items():
+        text += f"{t['name']} — {t['price']} ₽/мес.\n"
+
+    bot.send_message(m.chat.id, text, reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text == "Чек-ин настроения")
 def mood_start(m):
