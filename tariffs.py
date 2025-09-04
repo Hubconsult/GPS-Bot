@@ -1,5 +1,5 @@
 # tariffs.py
-from collections import give_smile, give_avatar, give_next_card
+from rewards import give_smile, give_avatar, give_next_card
 from settings import PAY_BUTTON_URL
 import datetime
 

@@ -1,5 +1,11 @@
 from telebot import types
 import re
+import threading
+import time
+
+from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
+from hints import get_hint
+from bot_utils import offer_renew
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, OWNER_IDS
@@ -173,6 +179,61 @@ def pay_button(m):
 def back_to_menu(m):
     bot.send_message(m.chat.id, "Главное меню:", reply_markup=main_menu())
 
+# --- Команда для показа тарифов ---
+@bot.message_handler(commands=["tariffs"])
+def show_tariffs(m):
+    text = "📜 <b>Выбери свой путь</b>\n\n"
+    for key, t in TARIFFS.items():
+        text += f"{t['name']} — {t['price']} ₽/мес.\n{t['description']}\n\n"
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for key, t in TARIFFS.items():
+        kb.add(
+            types.InlineKeyboardButton(
+                f"{t['name']} • {t['price']} ₽", url=t["pay_url"]
+            )
+        )
+
+    bot.send_message(m.chat.id, text, reply_markup=kb)
+
+# --- Активация тарифа ---
+@bot.message_handler(commands=["activate"])
+def activate(m):
+    parts = m.text.split()
+    if len(parts) < 2:
+        bot.send_message(
+            m.chat.id,
+            "❌ Укажи тариф: sozvuchie, otrazhenie или puteshestvie",
+        )
+        return
+
+    tariff_key = parts[1]
+    reward, msg = activate_tariff(m.chat.id, tariff_key)
+    if reward:
+        bot.send_message(m.chat.id, f"{msg}\n\nТвоя первая награда: {reward}")
+    else:
+        bot.send_message(m.chat.id, msg)
+
+# --- Подсказка ---
+@bot.message_handler(commands=["hint"])
+def hint(m):
+    parts = m.text.split()
+    if len(parts) < 3:
+        bot.send_message(
+            m.chat.id, "❌ Укажи тариф и шаг подсказки: /hint sozvuchie 0"
+        )
+        return
+
+    tariff_key, step = parts[1], int(parts[2])
+    hint_text = get_hint(TARIFFS[tariff_key]["category"], step)
+    bot.send_message(m.chat.id, f"🔮 Подсказка: {hint_text}")
+
+# --- Фоновая проверка окончаний подписок ---
+def background_checker():
+    while True:
+        check_expiring_tariffs(bot)
+        time.sleep(86400)  # раз в сутки
+
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
 @bot.message_handler(func=lambda msg: True)
 def fallback(m):
@@ -183,6 +244,7 @@ def fallback(m):
 
 # --- Запуск ---
 if __name__ == "__main__":
+    threading.Thread(target=background_checker, daemon=True).start()
     bot.infinity_polling(skip_pending=True)
 
 
