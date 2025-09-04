@@ -8,7 +8,15 @@ from hints import get_hint
 from bot_utils import offer_renew
 
 # --- Конфиг: значения централизованы в settings.py ---
-from settings import bot, client, FREE_LIMIT, OWNER_IDS
+from settings import (
+    bot,
+    client,
+    FREE_LIMIT,
+    OWNER_IDS,
+    PAY_URL_HARMONY,
+    PAY_URL_REFLECTION,
+    PAY_URL_TRAVEL,
+)
 
 # --- Хранилища состояния пользователей ---
 user_counters = {}
@@ -24,13 +32,12 @@ def main_menu():
     return kb
 
 def pay_inline():
-    ikb = types.InlineKeyboardMarkup(row_width=1)
-    for key, t in TARIFFS.items():
-        ikb.add(
-            types.InlineKeyboardButton(
-                f"{t['name']} — {t['price']} ₽", url=t["pay_url"]
-            )
-        )
+    ikb = types.InlineKeyboardMarkup()
+    ikb.add(
+        types.InlineKeyboardButton("🌱 Созвучие — 299 ₽", url=PAY_URL_HARMONY),
+        types.InlineKeyboardButton("🌿 Отражение — 999 ₽", url=PAY_URL_REFLECTION),
+        types.InlineKeyboardButton("🌌 Путешествие — 1999 ₽", url=PAY_URL_TRAVEL),
+    )
     return ikb
 
 # --- Проверка лимита ---
