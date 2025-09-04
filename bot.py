@@ -8,18 +8,7 @@ from hints import get_hint
 from bot_utils import offer_renew
 
 # --- Конфиг: значения централизованы в settings.py ---
-from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, OWNER_IDS
-
-# --- Фильтр: оставляем только 1 утверждение + 1 вопрос ---
-def force_short_reply(text: str) -> str:
-    sentences = re.split(r'(?<=[.?!])\s+', text.strip())
-    short = []
-    for s in sentences:
-        if s:
-            short.append(s.strip())
-        if len(short) == 2:
-            break
-    return " ".join(short)
+from settings import bot, client, FREE_LIMIT, OWNER_IDS
 
 # --- Хранилища состояния пользователей ---
 user_counters = {}
@@ -35,8 +24,13 @@ def main_menu():
     return kb
 
 def pay_inline():
-    ikb = types.InlineKeyboardMarkup()
-    ikb.add(types.InlineKeyboardButton("Оплатить подписку — 299 ₽", url=PAY_BUTTON_URL))
+    ikb = types.InlineKeyboardMarkup(row_width=1)
+    for key, t in TARIFFS.items():
+        ikb.add(
+            types.InlineKeyboardButton(
+                f"{t['name']} — {t['price']} ₽", url=t["pay_url"]
+            )
+        )
     return ikb
 
 # --- Проверка лимита ---
@@ -50,7 +44,7 @@ def check_limit(chat_id) -> bool:
         bot.send_message(
             chat_id,
             "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\n"
-            "Оформите подписку за <b>299 ₽/мес.</b> 👇",
+            "Выберите тариф 👇",
             reply_markup=pay_inline(),
         )
         return False
@@ -172,7 +166,7 @@ def stats(m):
 def pay_button(m):
     bot.send_message(
         m.chat.id,
-        "Оплата подписки через ЮKassa. Нажми кнопку ниже 👇",
+        "Оплата подписки через ЮKassa. Выберите тариф 👇",
         reply_markup=pay_inline()
     )
 
