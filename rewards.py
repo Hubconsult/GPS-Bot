@@ -1,4 +1,4 @@
-# collections.py
+# rewards.py
 import random
 
 # --- Смайлы (коллекция эмоций) ---
