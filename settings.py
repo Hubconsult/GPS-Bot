@@ -37,3 +37,5 @@ __all__ = [
     "PAY_BUTTON_URL",
     "SYSTEM_PROMPT",
 ]
+
+OWNER_IDS = [1308643253]

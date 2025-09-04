@@ -2,7 +2,7 @@ from telebot import types
 import re
 
 # --- Конфиг: значения централизованы в settings.py ---
-from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL
+from settings import bot, client, FREE_LIMIT, PAY_BUTTON_URL, OWNER_IDS
 
 # --- Фильтр: оставляем только 1 утверждение + 1 вопрос ---
 def force_short_reply(text: str) -> str:
@@ -35,6 +35,10 @@ def pay_inline():
 
 # --- Проверка лимита ---
 def check_limit(chat_id) -> bool:
+    # 🚀 Владельцу бота лимиты не применяются
+    if chat_id in OWNER_IDS:
+        return True
+
     used = user_counters.get(chat_id, 0)
     if used >= FREE_LIMIT:
         bot.send_message(
