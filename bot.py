@@ -1,7 +1,8 @@
-from telebot import types
 import re
 import threading
 import time
+
+from telebot import types
 
 from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
 from hints import get_hint
@@ -16,6 +17,7 @@ from settings import (
     PAY_URL_HARMONY,
     PAY_URL_REFLECTION,
     PAY_URL_TRAVEL,
+    SYSTEM_PROMPT,
 )
 
 # --- Хранилища состояния пользователей ---
@@ -79,14 +81,7 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
         user_histories[chat_id] = history
 
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Ты — друг и собеседник. "
-                    "Отвечай только коротко: одно поддерживающее предложение и один вопрос. "
-                    "Запрещено писать списки, длинные объяснения, несколько вопросов сразу."
-                ),
-            },
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "assistant",
                 "content": "Слышу, что тебе тяжело. Скажи, это больше похоже на усталость или на тревогу?",
