@@ -1,11 +1,5 @@
 from telebot import types
 import re
-import threading
-import time
-
-from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
-from hints import get_hint
-from bot_utils import offer_renew
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -26,19 +20,18 @@ user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, .
 
 # --- Клавиатуры ---
 def main_menu():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    kb.add("Чек-ин настроения", "Быстрая помощь")
-    kb.add("Статистика", "Оплатить подписку")
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    kb.add("Чек-ин настроения", "Статистика", "Оплатить")
     return kb
 
-def pay_inline():
-    ikb = types.InlineKeyboardMarkup()
-    ikb.add(
-        types.InlineKeyboardButton("🌱 Созвучие — 299 ₽", url=PAY_URL_HARMONY),
-        types.InlineKeyboardButton("🌿 Отражение — 999 ₽", url=PAY_URL_REFLECTION),
-        types.InlineKeyboardButton("🌌 Путешествие — 1999 ₽", url=PAY_URL_TRAVEL),
-    )
-    return ikb
+
+def pay_menu():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    kb.add("🌱 Созвучие — 299 ₽")
+    kb.add("🌿 Отражение — 999 ₽")
+    kb.add("🌌 Путешествие — 1999 ₽")
+    kb.add("⬅️ Назад")
+    return kb
 
 # --- Проверка лимита ---
 def check_limit(chat_id) -> bool:
@@ -52,7 +45,7 @@ def check_limit(chat_id) -> bool:
             chat_id,
             "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\n"
             "Выберите тариф 👇",
-            reply_markup=pay_inline(),
+            reply_markup=pay_menu(),
         )
         return False
     return True
@@ -115,13 +108,10 @@ def start(m):
     user_counters[m.chat.id] = 0
     user_moods[m.chat.id] = []
     text = (
-        "Привет 👋 Я твой <b>Внутренний GPS</b>.\n\n"
-        "• Бесплатно доступны <b>10 диалогов</b>\n"
-        "• Доступные тарифы:\n\n"
+        "<b>Внутренний GPS</b>\n"
+        "● online\n\n"
+        "Привет 👋 Я твой Внутренний GPS!"
     )
-    for key, t in TARIFFS.items():
-        text += f"{t['name']} — {t['price']} ₽/мес.\n"
-
     bot.send_message(m.chat.id, text, reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text == "Чек-ин настроения")
@@ -140,19 +130,6 @@ def mood_save(m):
     user_moods.setdefault(m.chat.id, []).append(m.text)
     bot.send_message(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
 
-@bot.message_handler(func=lambda msg: msg.text == "Быстрая помощь")
-def quick_help(m):
-    if not check_limit(m.chat.id): return
-    increment_counter(m.chat.id)
-    bot.send_message(
-        m.chat.id,
-        "🧭 <b>Быстрая помощь</b>\n"
-        "• Дыхание 4-7-8\n"
-        "• Техника «5 вещей вокруг»\n"
-        "• Мышечное расслабление\n",
-        reply_markup=main_menu()
-    )
-
 @bot.message_handler(func=lambda msg: msg.text == "Статистика")
 def stats(m):
     if not check_limit(m.chat.id): return
@@ -169,72 +146,48 @@ def stats(m):
         reply_markup=main_menu()
     )
 
-@bot.message_handler(func=lambda msg: msg.text == "Оплатить подписку")
+@bot.message_handler(func=lambda msg: msg.text == "Оплатить")
 def pay_button(m):
     bot.send_message(
         m.chat.id,
-        "Оплата подписки через ЮKassa. Выберите тариф 👇",
-        reply_markup=pay_inline()
+        "Выбери тариф 👇",
+        reply_markup=pay_menu()
     )
+
+
+@bot.message_handler(
+    func=lambda msg: msg.text in [
+        "🌱 Созвучие — 299 ₽",
+        "🌿 Отражение — 999 ₽",
+        "🌌 Путешествие — 1999 ₽",
+    ]
+)
+def tariffs(m):
+    if "Созвучие" in m.text:
+        url = PAY_URL_HARMONY
+    elif "Отражение" in m.text:
+        url = PAY_URL_REFLECTION
+    else:
+        url = PAY_URL_TRAVEL
+
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Перейти к оплате 💳", url=url))
+    kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back"))
+
+    bot.send_message(m.chat.id, f"Ты выбрал: {m.text}", reply_markup=kb)
 
 @bot.message_handler(func=lambda msg: msg.text == "⬅️ Назад")
 def back_to_menu(m):
     bot.send_message(m.chat.id, "Главное меню:", reply_markup=main_menu())
 
-# --- Команда для показа тарифов ---
-@bot.message_handler(commands=["tariffs"])
-def show_tariffs(m):
-    text = "📜 <b>Выбери свой путь</b>\n\n"
-    for key, t in TARIFFS.items():
-        text += f"{t['name']} — {t['price']} ₽/мес.\n{t['description']}\n\n"
 
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    for key, t in TARIFFS.items():
-        kb.add(
-            types.InlineKeyboardButton(
-                f"{t['name']} • {t['price']} ₽", url=t["pay_url"]
-            )
-        )
-
-    bot.send_message(m.chat.id, text, reply_markup=kb)
-
-# --- Активация тарифа ---
-@bot.message_handler(commands=["activate"])
-def activate(m):
-    parts = m.text.split()
-    if len(parts) < 2:
-        bot.send_message(
-            m.chat.id,
-            "❌ Укажи тариф: sozvuchie, otrazhenie или puteshestvie",
-        )
-        return
-
-    tariff_key = parts[1]
-    reward, msg = activate_tariff(m.chat.id, tariff_key)
-    if reward:
-        bot.send_message(m.chat.id, f"{msg}\n\nТвоя первая награда: {reward}")
-    else:
-        bot.send_message(m.chat.id, msg)
-
-# --- Подсказка ---
-@bot.message_handler(commands=["hint"])
-def hint(m):
-    parts = m.text.split()
-    if len(parts) < 3:
-        bot.send_message(
-            m.chat.id, "❌ Укажи тариф и шаг подсказки: /hint sozvuchie 0"
-        )
-        return
-
-    tariff_key, step = parts[1], int(parts[2])
-    hint_text = get_hint(TARIFFS[tariff_key]["category"], step)
-    bot.send_message(m.chat.id, f"🔮 Подсказка: {hint_text}")
-
-# --- Фоновая проверка окончаний подписок ---
-def background_checker():
-    while True:
-        check_expiring_tariffs(bot)
-        time.sleep(86400)  # раз в сутки
+@bot.callback_query_handler(func=lambda call: call.data == "back")
+def callback_back(call):
+    bot.send_message(
+        call.message.chat.id,
+        "Главное меню:",
+        reply_markup=main_menu()
+    )
 
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
 @bot.message_handler(func=lambda msg: True)
@@ -246,7 +199,6 @@ def fallback(m):
 
 # --- Запуск ---
 if __name__ == "__main__":
-    threading.Thread(target=background_checker, daemon=True).start()
     bot.infinity_polling(skip_pending=True)
 
 
