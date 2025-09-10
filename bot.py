@@ -6,7 +6,6 @@ from telebot import types
 
 from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
 from hints import get_hint
-from bot_utils import offer_renew
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -26,6 +25,13 @@ user_counters = {}
 user_moods = {}
 # Хранилище истории сообщений пользователей
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
+user_messages = {}  # {chat_id: [message_id, ...]}
+
+
+def send_and_store(chat_id, text, **kwargs):
+    msg = bot.send_message(chat_id, text, **kwargs)
+    user_messages.setdefault(chat_id, []).append(msg.message_id)
+    return msg
 
 # --- Клавиатуры ---
 def main_menu():
@@ -50,7 +56,7 @@ def check_limit(chat_id) -> bool:
 
     used = user_counters.get(chat_id, 0)
     if used >= FREE_LIMIT:
-        bot.send_message(
+        send_and_store(
             chat_id,
             "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\n"
             "Выберите тариф 👇",
@@ -114,7 +120,7 @@ def start(m):
         "● online\n\n"
         "Привет 👋 Я твой Внутренний GPS!"
     )
-    bot.send_message(m.chat.id, text, reply_markup=main_menu())
+    send_and_store(m.chat.id, text, reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text == "Чек-ин настроения")
 def mood_start(m):
@@ -123,14 +129,14 @@ def mood_start(m):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=4, one_time_keyboard=True)
     kb.add("😊", "😟", "😴", "😡")
     kb.add("⬅️ Назад")
-    bot.send_message(m.chat.id, "Выбери смайлик, который ближе к твоему состоянию:", reply_markup=kb)
+    send_and_store(m.chat.id, "Выбери смайлик, который ближе к твоему состоянию:", reply_markup=kb)
 
 @bot.message_handler(func=lambda msg: msg.text in ["😊", "😟", "😴", "😡"])
 def mood_save(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
     user_moods.setdefault(m.chat.id, []).append(m.text)
-    bot.send_message(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
+    send_and_store(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text == "Статистика")
 def stats(m):
@@ -138,19 +144,19 @@ def stats(m):
     increment_counter(m.chat.id)
     moods = user_moods.get(m.chat.id, [])
     counts = {e: moods.count(e) for e in ["😊", "😟", "😴", "😡"]}
-    bot.send_message(
+    send_and_store(
         m.chat.id,
         f"📊 <b>Твоя неделя</b>\n"
         f"😊 Радость: {counts['😊']}\n"
         f"😟 Тревога: {counts['😟']}\n"
         f"😴 Усталость: {counts['😴']}\n"
         f"😡 Злость: {counts['😡']}",
-        reply_markup=main_menu()
+        reply_markup=main_menu(),
     )
 
 @bot.message_handler(func=lambda msg: msg.text == "Оплатить")
 def pay_button(m):
-    bot.send_message(
+    send_and_store(
         m.chat.id,
         "Выбери тариф 👇",
         reply_markup=pay_menu()
@@ -176,16 +182,16 @@ def tariffs(m):
     kb.add(types.InlineKeyboardButton("Перейти к оплате 💳", url=url))
     kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back"))
 
-    bot.send_message(m.chat.id, f"Ты выбрал: {m.text}", reply_markup=kb)
+    send_and_store(m.chat.id, f"Ты выбрал: {m.text}", reply_markup=kb)
 
 @bot.message_handler(func=lambda msg: msg.text == "⬅️ Назад")
 def back_to_menu(m):
-    bot.send_message(m.chat.id, "Главное меню:", reply_markup=main_menu())
+    send_and_store(m.chat.id, "Главное меню:", reply_markup=main_menu())
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "back")
 def callback_back(call):
-    bot.send_message(
+    send_and_store(
         call.message.chat.id,
         "Главное меню:",
         reply_markup=main_menu()
@@ -206,14 +212,14 @@ def show_tariffs(m):
             )
         )
 
-    bot.send_message(m.chat.id, text, reply_markup=kb)
+    send_and_store(m.chat.id, text, reply_markup=kb)
 
 # --- Активация тарифа ---
 @bot.message_handler(commands=["activate"])
 def activate(m):
     parts = m.text.split()
     if len(parts) < 2:
-        bot.send_message(
+        send_and_store(
             m.chat.id,
             "❌ Укажи тариф: sozvuchie, otrazhenie или puteshestvie",
         )
@@ -222,28 +228,42 @@ def activate(m):
     tariff_key = parts[1]
     reward, msg = activate_tariff(m.chat.id, tariff_key)
     if reward:
-        bot.send_message(m.chat.id, f"{msg}\n\nТвоя первая награда: {reward}")
+        send_and_store(m.chat.id, f"{msg}\n\nТвоя первая награда: {reward}")
     else:
-        bot.send_message(m.chat.id, msg)
+        send_and_store(m.chat.id, msg)
 
 # --- Подсказка ---
 @bot.message_handler(commands=["hint"])
 def hint(m):
     parts = m.text.split()
     if len(parts) < 3:
-        bot.send_message(
+        send_and_store(
             m.chat.id, "❌ Укажи тариф и шаг подсказки: /hint sozvuchie 0"
         )
         return
 
     tariff_key, step = parts[1], int(parts[2])
     hint_text = get_hint(TARIFFS[tariff_key]["category"], step)
-    bot.send_message(m.chat.id, f"🔮 Подсказка: {hint_text}")
+    send_and_store(m.chat.id, f"🔮 Подсказка: {hint_text}")
 
-# --- Фоновая проверка окончаний подписок ---
+# --- Фоновая проверка окончаний подписок и очистка истории ---
 def background_checker():
+    counter = 0
     while True:
-        check_expiring_tariffs(bot)
+        check_expiring_tariffs(send_and_store)
+
+        if counter % 7 == 0:
+            user_histories.clear()
+            for chat_id, msgs in user_messages.items():
+                for msg_id in msgs:
+                    try:
+                        bot.delete_message(chat_id, msg_id)
+                    except Exception:
+                        pass
+            user_messages.clear()
+            print("🧹 История всех пользователей и сообщения очищены")
+
+        counter += 1
         time.sleep(86400)  # раз в сутки
 
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
@@ -252,7 +272,7 @@ def fallback(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
     answer = gpt_answer(m.chat.id, m.text)  # GPT-5 Mini отвечает
-    bot.send_message(m.chat.id, answer, reply_markup=main_menu())
+    send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
 # --- Запуск ---
 if __name__ == "__main__":
