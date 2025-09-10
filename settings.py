@@ -17,6 +17,9 @@ PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL", "https://yookassa.ru/")
 # IDs of bot owners that bypass usage limits
 OWNER_IDS = [1308643253]
 
+# Maximum number of conversation messages to retain per user
+HISTORY_LIMIT = 15
+
 # System prompt for the GPT assistant
 SYSTEM_PROMPT = (
     "Ты — тёплый и внимательный собеседник. "
@@ -44,4 +47,5 @@ __all__ = [
     "PAY_URL_TRAVEL",
     "SYSTEM_PROMPT",
     "OWNER_IDS",
+    "HISTORY_LIMIT",
 ]

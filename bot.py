@@ -13,6 +13,7 @@ from settings import (
     bot,
     client,
     FREE_LIMIT,
+    HISTORY_LIMIT,
     OWNER_IDS,
     PAY_URL_HARMONY,
     PAY_URL_REFLECTION,
@@ -77,7 +78,7 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
     try:
         history = user_histories.get(chat_id, [])
         history.append({"role": "user", "content": user_text})
-        history = history[-5:]
+        history = history[-HISTORY_LIMIT:]
         user_histories[chat_id] = history
 
         messages = [
@@ -97,7 +98,7 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
         reply = force_short_reply(reply)  # обрезаем всё длиннее 2 предложений
 
         history.append({"role": "assistant", "content": reply})
-        user_histories[chat_id] = history[-5:]
+        user_histories[chat_id] = history[-HISTORY_LIMIT:]
 
         return reply
     except Exception as e:
