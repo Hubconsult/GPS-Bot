@@ -5,8 +5,13 @@ import time
 from storage import init_db, get_used_free, increment_used
 from telebot import types
 
-from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
-from tariffs import TARIFF_MODES, user_tariffs
+from tariffs import (
+    TARIFFS,
+    TARIFF_MODES,
+    user_tariffs,
+    activate_tariff,
+    check_expiring_tariffs,
+)
 from hints import get_hint
 
 # --- Конфиг: значения централизованы в settings.py ---
