@@ -3,7 +3,7 @@ from tariffs import TARIFFS
 from telebot import types
 
 
-def offer_renew(send_func, chat_id, tariff_key=None):
+def offer_renew(bot, chat_id, tariff_key=None):
     text = (
         "⏳ <b>Срок подписки подходит к концу</b>.\n\n"
         "Путешествие можно продолжить — впереди новые награды и открытия."
@@ -16,4 +16,4 @@ def offer_renew(send_func, chat_id, tariff_key=None):
                 url=t["pay_url"],
             )
         )
-    send_func(chat_id, text, reply_markup=kb)
+    bot.send_message(chat_id, text, reply_markup=kb)

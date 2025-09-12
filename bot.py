@@ -1,11 +1,19 @@
 import re
 import threading
 import time
+import datetime
 
 from storage import init_db, get_used_free, increment_used
 from telebot import types
 
-from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
+# Tariff configuration and state tracking
+from tariffs import (
+    TARIFFS,
+    TARIFF_MODES,
+    user_tariffs,
+    activate_tariff,
+    check_expiring_tariffs,
+)
 from hints import get_hint
 
 # --- Конфиг: значения централизованы в settings.py ---
@@ -40,6 +48,7 @@ def send_and_store(chat_id, text, **kwargs):
     return msg
 
 # --- Клавиатуры ---
+
 def main_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     kb.add("Чек-ин настроения", "Статистика", "Оплатить")
@@ -65,6 +74,7 @@ def pay_inline():
     return kb
 
 # --- Проверка лимита ---
+
 def check_limit(chat_id) -> bool:
     if chat_id in OWNER_IDS:
         return True
@@ -79,16 +89,30 @@ def check_limit(chat_id) -> bool:
     return True
 
 # --- Helpers ---
+
 def increment_counter(chat_id) -> None:
     increment_used(chat_id)
 
+# --- Получение режима из активного тарифа ---
+
+def get_user_mode(chat_id: int) -> str:
+    info = user_tariffs.get(chat_id)
+    if not info:
+        return "short_friend"
+    if info["end"] < datetime.date.today():
+        user_tariffs.pop(chat_id, None)
+        return "short_friend"
+    return TARIFF_MODES.get(info["tariff"], "short_friend")
+
 # --- Обрезаем ответ GPT до 2 предложений ---
+
 def force_short_reply(text: str) -> str:
     sentences = re.split(r'(?<=[.?!])\s+', text)
     return " ".join(sentences[:2]).strip()
 
 
 # --- Режимы общения ---
+
 MODES = {
     "short_friend": {
         "name": "Короткий друг",
@@ -105,6 +129,7 @@ MODES = {
 }
 
 # --- GPT-5 Mini ответ с историей ---
+
 def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> str:
     try:
         history = user_histories.get(chat_id, [])
@@ -283,7 +308,7 @@ def who_are_you(m):
 def background_checker():
     counter = 0
     while True:
-        check_expiring_tariffs(send_and_store)
+        check_expiring_tariffs(bot)
 
         if counter % 7 == 0:
             user_histories.clear()
@@ -320,7 +345,8 @@ def fallback(m):
         user_test_modes[m.chat.id]["coach"] += 1
         answer = gpt_answer(m.chat.id, m.text, "coach")
     else:
-        answer = gpt_answer(m.chat.id, m.text, "short_friend")
+        mode = get_user_mode(m.chat.id)
+        answer = gpt_answer(m.chat.id, m.text, mode)
 
     send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
