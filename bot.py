@@ -2,11 +2,11 @@ import re
 import threading
 import time
 
+from storage import init_db, get_used_free, increment_used
 from telebot import types
 
 from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
 from hints import get_hint
-from storage import get_used_free, increment_used, init_db
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -21,14 +21,14 @@ from settings import (
     SYSTEM_PROMPT,
 )
 
+# Initialize the SQLite storage before handling any requests
+init_db()
+
 # --- Хранилища состояния пользователей ---
 user_moods = {}
 # Хранилище истории сообщений пользователей
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 user_messages = {}  # {chat_id: [message_id, ...]}
-
-# Ensure the SQLite storage is ready
-init_db()
 
 
 def send_and_store(chat_id, text, **kwargs):
