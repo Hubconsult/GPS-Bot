@@ -85,21 +85,33 @@ def force_short_reply(text: str) -> str:
     return " ".join(sentences[:2]).strip()
 
 
+# --- Режимы общения ---
+MODES = {
+    "short_friend": {
+        "name": "Короткий друг",
+        "system_prompt": "Ты — добрый и лёгкий собеседник. Отвечай коротко, тепло, по-дружески. Не задавай больше одного вопроса за раз.",
+    },
+    "philosopher": {
+        "name": "Философ",
+        "system_prompt": "Ты — мудрый философ. Отвечай развёрнуто, с метафорами, примерами, глубокими размышлениями. Можно задавать уточняющие вопросы, но максимум 2 подряд, затем всегда давать содержательный ответ.",
+    },
+    "coach": {
+        "name": "Коуч",
+        "system_prompt": "Ты — коуч и наставник. Помогаешь разложить проблему на шаги. Используй эмпатию, уточняй детали, но не больше 2 вопросов подряд. Каждый ответ содержит полезный совет и один вопрос для движения вперёд.",
+    }
+}
+
 # --- GPT-5 Mini ответ с историей ---
-def gpt_answer(chat_id: int, user_text: str) -> str:
+def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> str:
     try:
         history = user_histories.get(chat_id, [])
         history.append({"role": "user", "content": user_text})
-        history = history[-HISTORY_LIMIT:]
+        history = history[-10:]
         user_histories[chat_id] = history
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "assistant",
-                "content": "Слышу, что тебе тяжело. Скажи, это больше похоже на усталость или на тревогу?",
-            },
-        ] + history
+        system_prompt = MODES[mode_key]["system_prompt"]
+
+        messages = [{"role": "system", "content": system_prompt}] + history
 
         response = client.chat.completions.create(
             model="gpt-5-mini",
@@ -107,10 +119,8 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
         )
 
         reply = response.choices[0].message.content.strip()
-        reply = force_short_reply(reply)  # обрезаем всё длиннее 2 предложений
-
         history.append({"role": "assistant", "content": reply})
-        user_histories[chat_id] = history[-HISTORY_LIMIT:]
+        user_histories[chat_id] = history[-10:]
 
         return reply
     except Exception as e:
