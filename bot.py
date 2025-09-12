@@ -1,6 +1,7 @@
 import re
 import threading
 import time
+import datetime
 
 from storage import init_db, get_used_free, increment_used
 from telebot import types
@@ -86,6 +87,17 @@ def check_limit(chat_id) -> bool:
 
 def increment_counter(chat_id) -> None:
     increment_used(chat_id)
+
+# --- Получение режима из активного тарифа ---
+
+def get_user_mode(chat_id: int) -> str:
+    info = user_tariffs.get(chat_id)
+    if not info:
+        return "short_friend"
+    if info["end"] < datetime.date.today():
+        user_tariffs.pop(chat_id, None)
+        return "short_friend"
+    return TARIFF_MODES.get(info["tariff"], "short_friend")
 
 # --- Обрезаем ответ GPT до 2 предложений ---
 
@@ -328,7 +340,8 @@ def fallback(m):
         user_test_modes[m.chat.id]["coach"] += 1
         answer = gpt_answer(m.chat.id, m.text, "coach")
     else:
-        answer = gpt_answer(m.chat.id, m.text, "short_friend")
+        mode = get_user_mode(m.chat.id)
+        answer = gpt_answer(m.chat.id, m.text, mode)
 
     send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
