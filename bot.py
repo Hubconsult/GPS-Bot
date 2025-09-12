@@ -5,13 +5,9 @@ import time
 from storage import init_db, get_used_free, increment_used
 from telebot import types
 
-from tariffs import (
-    TARIFFS,
-    TARIFF_MODES,
-    activate_tariff,
-    check_expiring_tariffs,
-    user_tariffs,
-)
+# Tariff configuration and state tracking
+from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
+from tariffs import TARIFF_MODES, user_tariffs
 from hints import get_hint
 
 # --- Конфиг: значения централизованы в settings.py ---
@@ -46,6 +42,7 @@ def send_and_store(chat_id, text, **kwargs):
     return msg
 
 # --- Клавиатуры ---
+
 def main_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     kb.add("Чек-ин настроения", "Статистика", "Оплатить")
@@ -71,6 +68,7 @@ def pay_inline():
     return kb
 
 # --- Проверка лимита ---
+
 def check_limit(chat_id) -> bool:
     if chat_id in OWNER_IDS:
         return True
@@ -85,16 +83,19 @@ def check_limit(chat_id) -> bool:
     return True
 
 # --- Helpers ---
+
 def increment_counter(chat_id) -> None:
     increment_used(chat_id)
 
 # --- Обрезаем ответ GPT до 2 предложений ---
+
 def force_short_reply(text: str) -> str:
     sentences = re.split(r'(?<=[.?!])\s+', text)
     return " ".join(sentences[:2]).strip()
 
 
 # --- Режимы общения ---
+
 MODES = {
     "short_friend": {
         "name": "Короткий друг",
@@ -111,6 +112,7 @@ MODES = {
 }
 
 # --- GPT-5 Mini ответ с историей ---
+
 def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> str:
     try:
         history = user_histories.get(chat_id, [])
