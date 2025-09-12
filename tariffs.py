@@ -1,12 +1,22 @@
 # tariffs.py
-from rewards import give_smile, give_avatar, give_next_card
-from settings import PAY_URL_HARMONY, PAY_URL_REFLECTION, PAY_URL_TRAVEL
+"""Tariff definitions and subscription management.
+
+This module describes available tariffs, keeps track of active user
+subscriptions and provides helper functions for activating tariffs and
+checking for expiring ones.
+"""
+
 import datetime
 
-# --- Хранилище активных подписок ---
+from rewards import give_smile, give_avatar, give_next_card
+from settings import PAY_URL_HARMONY, PAY_URL_REFLECTION, PAY_URL_TRAVEL
+
+
+# --- Storage for active subscriptions ---
 user_tariffs = {}  # {chat_id: {"tariff": str, "start": date, "end": date}}
 
-# --- Тарифы ---
+
+# --- Tariff definitions ---
 TARIFFS = {
     "sozvuchie": {
         "name": "🌱 Созвучие",
@@ -34,23 +44,17 @@ TARIFFS = {
     },
 }
 
-# --- Привязка тарифов к режимам общения ---
+
+# --- Mapping tariffs to dialogue modes ---
 TARIFF_MODES = {
-    "sozvuchie": "short_friend",   # 299 ₽ — Короткий друг
- codex/add-imports-from-tariffs-in-bot.py
-    "otrazhenie": "philosopher",   # 999 ₽ — Философ
-    "puteshestvie": "coach"        # 1999 ₽ — Коуч
-}
-
-
-def activate_tariff(chat_id: int, tariff_key: str):
-
+    "sozvuchie": "short_friend",  # 299 ₽ — Короткий друг
     "otrazhenie": "philosopher",  # 999 ₽ — Философ
-    "puteshestvie": "coach"        # 1999 ₽ — Коуч
+    "puteshestvie": "coach",      # 1999 ₽ — Коуч
 }
 
+
 def activate_tariff(chat_id: int, tariff_key: str):
- main
+    """Activate a tariff for the given user and grant starter reward."""
     if tariff_key not in TARIFFS:
         return None, "❌ Неизвестный тариф"
 
@@ -67,13 +71,19 @@ def activate_tariff(chat_id: int, tariff_key: str):
         "end": end_date,
     }
 
-    return reward, f"✨ Ты подключил тариф <b>{tariff['name']}</b>!\n\n" \
-                   f"{tariff['description']}\n" \
-                   f"Подписка активна до: {end_date.strftime('%d.%m.%Y')}"
+    message = (
+        f"✨ Ты подключил тариф <b>{tariff['name']}</b>!\n\n"
+        f"{tariff['description']}\n"
+        f"Подписка активна до: {end_date.strftime('%d.%m.%Y')}"
+    )
+    return reward, message
+
 
 def check_expiring_tariffs(bot):
+    """Notify users whose tariff expires in three days."""
     today = datetime.date.today()
     for chat_id, info in list(user_tariffs.items()):
         if info["end"] - today == datetime.timedelta(days=3):
             from bot_utils import offer_renew
             offer_renew(bot, chat_id, info["tariff"])
+
