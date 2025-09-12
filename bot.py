@@ -35,6 +35,14 @@ user_messages = {}  # {chat_id: [message_id, ...]}
 user_test_modes = {}  # {chat_id: {"short_friend": 0, "philosopher": 0, "coach": 0}}
 
 
+# --- Режимы, доступные пользователю ---
+def get_user_modes(chat_id):
+    info = user_tariffs.get(chat_id)
+    if not info:
+        return ["short_friend"]
+    return TARIFF_MODES.get(info["tariff"], ["short_friend"])
+
+
 def send_and_store(chat_id, text, **kwargs):
     msg = bot.send_message(chat_id, text, **kwargs)
     user_messages.setdefault(chat_id, []).append(msg.message_id)
@@ -311,17 +319,20 @@ def fallback(m):
 
     test_counts = user_test_modes[m.chat.id]
 
+    allowed_modes = get_user_modes(m.chat.id)
+
     if test_counts["short_friend"] < 2:
         user_test_modes[m.chat.id]["short_friend"] += 1
         answer = gpt_answer(m.chat.id, m.text, "short_friend")
-    elif test_counts["philosopher"] < 2:
+    elif "philosopher" in allowed_modes and test_counts["philosopher"] < 2:
         user_test_modes[m.chat.id]["philosopher"] += 1
         answer = gpt_answer(m.chat.id, m.text, "philosopher")
-    elif test_counts["coach"] < 2:
+    elif "coach" in allowed_modes and test_counts["coach"] < 2:
         user_test_modes[m.chat.id]["coach"] += 1
         answer = gpt_answer(m.chat.id, m.text, "coach")
     else:
-        answer = gpt_answer(m.chat.id, m.text, "short_friend")
+        mode = allowed_modes[0]
+        answer = gpt_answer(m.chat.id, m.text, mode)
 
     send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
