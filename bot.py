@@ -5,8 +5,13 @@ import time
 from storage import init_db, get_used_free, increment_used
 from telebot import types
 
-from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
-from tariffs import TARIFF_MODES, user_tariffs
+from tariffs import (
+    TARIFFS,
+    TARIFF_MODES,
+    activate_tariff,
+    check_expiring_tariffs,
+    user_tariffs,
+)
 from hints import get_hint
 
 # --- Конфиг: значения централизованы в settings.py ---
@@ -33,14 +38,6 @@ user_messages = {}  # {chat_id: [message_id, ...]}
 
 # бесплатный пробник по режимам
 user_test_modes = {}  # {chat_id: {"short_friend": 0, "philosopher": 0, "coach": 0}}
-
-
-# --- Режимы, доступные пользователю ---
-def get_user_modes(chat_id):
-    info = user_tariffs.get(chat_id)
-    if not info:
-        return ["short_friend"]
-    return TARIFF_MODES.get(info["tariff"], ["short_friend"])
 
 
 def send_and_store(chat_id, text, **kwargs):
@@ -319,20 +316,17 @@ def fallback(m):
 
     test_counts = user_test_modes[m.chat.id]
 
-    allowed_modes = get_user_modes(m.chat.id)
-
     if test_counts["short_friend"] < 2:
         user_test_modes[m.chat.id]["short_friend"] += 1
         answer = gpt_answer(m.chat.id, m.text, "short_friend")
-    elif "philosopher" in allowed_modes and test_counts["philosopher"] < 2:
+    elif test_counts["philosopher"] < 2:
         user_test_modes[m.chat.id]["philosopher"] += 1
         answer = gpt_answer(m.chat.id, m.text, "philosopher")
-    elif "coach" in allowed_modes and test_counts["coach"] < 2:
+    elif test_counts["coach"] < 2:
         user_test_modes[m.chat.id]["coach"] += 1
         answer = gpt_answer(m.chat.id, m.text, "coach")
     else:
-        mode = allowed_modes[0]
-        answer = gpt_answer(m.chat.id, m.text, mode)
+        answer = gpt_answer(m.chat.id, m.text, "short_friend")
 
     send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
