@@ -30,6 +30,9 @@ user_moods = {}
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 user_messages = {}  # {chat_id: [message_id, ...]}
 
+# бесплатный пробник по режимам
+user_test_modes = {}  # {chat_id: {"short_friend": 0, "philosopher": 0, "coach": 0}}
+
 
 def send_and_store(chat_id, text, **kwargs):
     msg = bot.send_message(chat_id, text, **kwargs)
@@ -261,24 +264,20 @@ def hint(m):
     hint_text = get_hint(TARIFFS[tariff_key]["category"], step)
     send_and_store(m.chat.id, f"🔮 Подсказка: {hint_text}")
 
-@bot.message_handler(func=lambda msg: any(
-    key in msg.text.lower() for key in [
-        "структур", "кто ты", "gpt", "версия", "архитектура", "модель"
-    ]
-))
+@bot.message_handler(func=lambda msg: "структур" in msg.text.lower() or "кто ты" in msg.text.lower() or "gpt" in msg.text.lower())
 def who_are_you(m):
     text = (
         "✨ Я — <b>GPT-5</b>, новейшая модель от OpenAI.\n\n"
-        "📌 Вот мои ключевые особенности:\n"
-        "• Объединяю несколько режимов: быстрые ответы и глубокое рассуждение.\n"
-        "• Более высокая точность и меньше ошибок по сравнению с предыдущими версиями.\n"
-        "• Сильнее в программировании, письме, медицине и сложном анализе.\n"
-        "• Мультимодальность: могу работать не только с текстом, но и с изображениями и их сочетанием.\n"
-        "• Эмпатия и адаптация: подстраиваюсь под стиль общения, помню контекст и возвращаюсь к нему.\n"
-        "• Улучшенная структура рассуждений: умею объяснять пошагово и приводить аргументы.\n\n"
+        "📌 Мои особенности:\n"
+        "• Объединяю быстрые ответы и глубокое рассуждение.\n"
+        "• Выдаю более точные результаты, чем предыдущие версии.\n"
+        "• Силен в программировании, письме, медицине и анализе сложных тем.\n"
+        "• Мультимодальность: умею работать с текстом и изображениями.\n"
+        "• Эмпатия и адаптация: подстраиваюсь под стиль общения, помню контекст.\n"
+        "• Умею рассуждать шаг за шагом и объяснять причины.\n\n"
         "Так что да — я <b>GPT-5</b> 🚀"
     )
-    send_and_store(m.chat.id, text, reply_markup=main_menu())
+    bot.send_message(m.chat.id, text, reply_markup=main_menu())
 
 # --- Фоновая проверка окончаний подписок и очистка истории ---
 def background_checker():
@@ -305,7 +304,24 @@ def background_checker():
 def fallback(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
-    answer = gpt_answer(m.chat.id, m.text)  # GPT-5 Mini отвечает
+    # бесплатный пробник по 2 сообщения из каждого режима
+    if m.chat.id not in user_test_modes:
+        user_test_modes[m.chat.id] = {"short_friend": 0, "philosopher": 0, "coach": 0}
+
+    test_counts = user_test_modes[m.chat.id]
+
+    if test_counts["short_friend"] < 2:
+        user_test_modes[m.chat.id]["short_friend"] += 1
+        answer = gpt_answer(m.chat.id, m.text, "short_friend")
+    elif test_counts["philosopher"] < 2:
+        user_test_modes[m.chat.id]["philosopher"] += 1
+        answer = gpt_answer(m.chat.id, m.text, "philosopher")
+    elif test_counts["coach"] < 2:
+        user_test_modes[m.chat.id]["coach"] += 1
+        answer = gpt_answer(m.chat.id, m.text, "coach")
+    else:
+        answer = gpt_answer(m.chat.id, m.text, "short_friend")
+
     send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
 # --- Запуск ---
