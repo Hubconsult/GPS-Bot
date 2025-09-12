@@ -34,6 +34,13 @@ TARIFFS = {
     },
 }
 
+# --- Режимы, доступные по тарифам ---
+TARIFF_MODES = {
+    "sozvuchie": ["short_friend"],
+    "otrazhenie": ["short_friend", "philosopher"],
+    "puteshestvie": ["short_friend", "philosopher", "coach"],
+}
+
 def activate_tariff(chat_id: int, tariff_key: str):
     if tariff_key not in TARIFFS:
         return None, "❌ Неизвестный тариф"
