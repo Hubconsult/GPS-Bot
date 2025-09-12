@@ -41,6 +41,7 @@ TARIFF_MODES = {
     "puteshestvie": ["short_friend", "philosopher", "coach"],
 }
 
+
 def activate_tariff(chat_id: int, tariff_key: str):
     if tariff_key not in TARIFFS:
         return None, "❌ Неизвестный тариф"
