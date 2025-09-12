@@ -63,9 +63,9 @@ def activate_tariff(chat_id: int, tariff_key: str):
                    f"{tariff['description']}\n" \
                    f"Подписка активна до: {end_date.strftime('%d.%m.%Y')}"
 
-def check_expiring_tariffs(send_func):
+def check_expiring_tariffs(bot):
     today = datetime.date.today()
     for chat_id, info in list(user_tariffs.items()):
         if info["end"] - today == datetime.timedelta(days=3):
             from bot_utils import offer_renew
-            offer_renew(send_func, chat_id, info["tariff"])
+            offer_renew(bot, chat_id, info["tariff"])

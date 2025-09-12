@@ -7,8 +7,13 @@ from storage import init_db, get_used_free, increment_used
 from telebot import types
 
 # Tariff configuration and state tracking
-from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
-from tariffs import TARIFF_MODES, user_tariffs
+from tariffs import (
+    TARIFFS,
+    TARIFF_MODES,
+    user_tariffs,
+    activate_tariff,
+    check_expiring_tariffs,
+)
 from hints import get_hint
 
 # --- Конфиг: значения централизованы в settings.py ---
@@ -303,7 +308,7 @@ def who_are_you(m):
 def background_checker():
     counter = 0
     while True:
-        check_expiring_tariffs(send_and_store)
+        check_expiring_tariffs(bot)
 
         if counter % 7 == 0:
             user_histories.clear()
