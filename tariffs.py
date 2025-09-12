@@ -34,11 +34,11 @@ TARIFFS = {
     },
 }
 
-# --- Режимы, доступные по тарифам ---
+# --- Привязка тарифов к режимам общения ---
 TARIFF_MODES = {
-    "sozvuchie": ["short_friend"],
-    "otrazhenie": ["short_friend", "philosopher"],
-    "puteshestvie": ["short_friend", "philosopher", "coach"],
+    "sozvuchie": "short_friend",   # 299 ₽ — Короткий друг
+    "otrazhenie": "philosopher",   # 999 ₽ — Философ
+    "puteshestvie": "coach"        # 1999 ₽ — Коуч
 }
 
 
