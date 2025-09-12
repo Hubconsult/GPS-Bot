@@ -51,29 +51,32 @@ def pay_menu():
     kb.add("⬅️ Назад")
     return kb
 
+def pay_inline():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for key, t in TARIFFS.items():
+        kb.add(
+            types.InlineKeyboardButton(
+                f"{t['name']} • {t['price']} ₽", url=t["pay_url"]
+            )
+        )
+    return kb
+
 # --- Проверка лимита ---
 def check_limit(chat_id) -> bool:
-    # 🚀 Владельцу бота лимиты не применяются
     if chat_id in OWNER_IDS:
         return True
-
     used = get_used_free(chat_id)
     if used >= FREE_LIMIT:
-        send_and_store(
+        bot.send_message(
             chat_id,
-            "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\n"
-            "Выберите тариф 👇",
-            reply_markup=pay_menu(),
+            "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\nВыберите тариф 👇",
+            reply_markup=pay_inline(),
         )
         return False
     return True
 
 # --- Helpers ---
 def increment_counter(chat_id) -> None:
-    """Increase the message counter for a user.
-
-    Creates the counter if it's the first interaction without requiring /start.
-    """
     increment_used(chat_id)
 
 # --- Обрезаем ответ GPT до 2 предложений ---
