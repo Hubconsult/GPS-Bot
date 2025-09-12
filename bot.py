@@ -6,6 +6,7 @@ from telebot import types
 
 from tariffs import TARIFFS, activate_tariff, check_expiring_tariffs
 from hints import get_hint
+from storage import get_used_free, increment_used, init_db
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -21,11 +22,13 @@ from settings import (
 )
 
 # --- Хранилища состояния пользователей ---
-user_counters = {}
 user_moods = {}
 # Хранилище истории сообщений пользователей
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 user_messages = {}  # {chat_id: [message_id, ...]}
+
+# Ensure the SQLite storage is ready
+init_db()
 
 
 def send_and_store(chat_id, text, **kwargs):
@@ -54,7 +57,7 @@ def check_limit(chat_id) -> bool:
     if chat_id in OWNER_IDS:
         return True
 
-    used = user_counters.get(chat_id, 0)
+    used = get_used_free(chat_id)
     if used >= FREE_LIMIT:
         send_and_store(
             chat_id,
@@ -71,7 +74,7 @@ def increment_counter(chat_id) -> None:
 
     Creates the counter if it's the first interaction without requiring /start.
     """
-    user_counters[chat_id] = user_counters.get(chat_id, 0) + 1
+    increment_used(chat_id)
 
 # --- Обрезаем ответ GPT до 2 предложений ---
 def force_short_reply(text: str) -> str:
@@ -113,7 +116,6 @@ def gpt_answer(chat_id: int, user_text: str) -> str:
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
 def start(m):
-    user_counters[m.chat.id] = 0
     user_moods[m.chat.id] = []
     text = (
         "<b>Внутренний GPS</b>\n"
