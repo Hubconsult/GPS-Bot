@@ -40,6 +40,8 @@ user_messages = {}  # {chat_id: [message_id, ...]}
 
 # бесплатный пробник по режимам
 user_test_modes = {}  # {chat_id: {"short_friend": 0, "philosopher": 0, "coach": 0}}
+# активный тестовый режим
+active_test_modes = {}  # {chat_id: mode_key}
 
 
 def send_and_store(chat_id, text, **kwargs):
@@ -324,30 +326,60 @@ def background_checker():
         counter += 1
         time.sleep(86400)  # раз в сутки
 
+# --- Тестовые режимы ---
+@bot.message_handler(commands=["testmodes"])
+def test_modes_menu(m):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("🎭 Короткий друг (2 сообщения)", callback_data="test_short_friend"),
+        types.InlineKeyboardButton("📚 Философ (2 сообщения)", callback_data="test_philosopher"),
+        types.InlineKeyboardButton("🧭 Коуч (2 сообщения)", callback_data="test_coach"),
+    )
+    bot.send_message(
+        m.chat.id,
+        "🔍 Выбери режим, который хочешь попробовать:\nКаждый доступен по 2 бесплатных сообщения.",
+        reply_markup=kb
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("test_"))
+def run_test_mode(call):
+    mode_key = call.data.replace("test_", "")
+    if call.message.chat.id not in user_test_modes:
+        user_test_modes[call.message.chat.id] = {"short_friend": 0, "philosopher": 0, "coach": 0}
+
+    if user_test_modes[call.message.chat.id][mode_key] >= 2:
+        bot.answer_callback_query(call.id, "❌ Лимит 2 сообщений в этом режиме исчерпан.")
+        return
+
+    bot.answer_callback_query(call.id, f"✅ Пробный режим {MODES[mode_key]['name']} активирован!")
+    bot.send_message(call.message.chat.id, f"Спроси меня что-то в режиме <b>{MODES[mode_key]['name']}</b> 👇")
+
+    # фиксируем, что активный тестовый режим запущен
+    user_histories[call.message.chat.id] = [{"role": "system", "content": MODES[mode_key]["system_prompt"]}]
+    user_test_modes[call.message.chat.id][mode_key] += 1
+    active_test_modes[call.message.chat.id] = mode_key
+
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
 @bot.message_handler(func=lambda msg: True)
 def fallback(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
-    # бесплатный пробник по 2 сообщения из каждого режима
-    if m.chat.id not in user_test_modes:
-        user_test_modes[m.chat.id] = {"short_friend": 0, "philosopher": 0, "coach": 0}
+    # обработка активного тестового режима
+    if m.chat.id in active_test_modes:
+        mode_key = active_test_modes[m.chat.id]
+        if user_test_modes[m.chat.id][mode_key] < 2:
+            answer = gpt_answer(m.chat.id, m.text, mode_key)
+            user_test_modes[m.chat.id][mode_key] += 1
+            if user_test_modes[m.chat.id][mode_key] >= 2:
+                active_test_modes.pop(m.chat.id, None)
+            send_and_store(m.chat.id, answer, reply_markup=main_menu())
+            return
+        else:
+            active_test_modes.pop(m.chat.id, None)
 
-    test_counts = user_test_modes[m.chat.id]
-
-    if test_counts["short_friend"] < 2:
-        user_test_modes[m.chat.id]["short_friend"] += 1
-        answer = gpt_answer(m.chat.id, m.text, "short_friend")
-    elif test_counts["philosopher"] < 2:
-        user_test_modes[m.chat.id]["philosopher"] += 1
-        answer = gpt_answer(m.chat.id, m.text, "philosopher")
-    elif test_counts["coach"] < 2:
-        user_test_modes[m.chat.id]["coach"] += 1
-        answer = gpt_answer(m.chat.id, m.text, "coach")
-    else:
-        mode = get_user_mode(m.chat.id)
-        answer = gpt_answer(m.chat.id, m.text, mode)
-
+    mode = get_user_mode(m.chat.id)
+    answer = gpt_answer(m.chat.id, m.text, mode)
     send_and_store(m.chat.id, answer, reply_markup=main_menu())
 
 # --- Запуск ---
