@@ -55,9 +55,8 @@ def send_and_store(chat_id, text, **kwargs):
 # --- Клавиатуры ---
 
 def main_menu():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    kb.add("Чек-ин настроения", "Статистика", "🎨 Мультимедиа")
-    kb.add("Оплатить")
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=4)
+    kb.add("Чек-ин", "Стата", "Оплата", "Медиа")
     return kb
 
 
@@ -192,7 +191,7 @@ def start(m):
     )
     send_and_store(m.chat.id, text, reply_markup=main_menu())
 
-@bot.message_handler(func=lambda msg: msg.text == "Чек-ин настроения")
+@bot.message_handler(func=lambda msg: msg.text == "Чек-ин")
 def mood_start(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
@@ -208,7 +207,7 @@ def mood_save(m):
     user_moods.setdefault(m.chat.id, []).append(m.text)
     send_and_store(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
 
-@bot.message_handler(func=lambda msg: msg.text == "Статистика")
+@bot.message_handler(func=lambda msg: msg.text == "Стата")
 def stats(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
@@ -224,7 +223,7 @@ def stats(m):
         reply_markup=main_menu(),
     )
 
-@bot.message_handler(func=lambda msg: msg.text == "Оплатить")
+@bot.message_handler(func=lambda msg: msg.text == "Оплата")
 def pay_button(m):
     send_and_store(
         m.chat.id,
