@@ -1,6 +1,5 @@
 import io
 from datetime import datetime
-from pathlib import Path
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -9,15 +8,16 @@ from openpyxl import Workbook
 from pptx import Presentation
 from pptx.util import Inches, Pt
 
-# Если добавить файл fonts/DejaVuSans.ttf, PDF корректно отрисует кириллицу.
+from font_data import ensure_font
+
 
 def make_pdf(text: str) -> bytes:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
-    font_path = Path(__file__).resolve().parent / "fonts" / "DejaVuSans.ttf"
-    if font_path.exists():
-        pdfmetrics.registerFont(TTFont("DejaVu", str(font_path)))
-        c.setFont("DejaVu", 12)
+
+    font_path = ensure_font()
+    pdfmetrics.registerFont(TTFont("DejaVu", font_path))
+    c.setFont("DejaVu", 12)
     c.setTitle("Document")
     width, height = A4
     y = height - 50
@@ -26,6 +26,7 @@ def make_pdf(text: str) -> bytes:
         y -= 18
         if y < 40:
             c.showPage()
+            c.setFont("DejaVu", 12)
             y = height - 50
     c.showPage()
     c.save()
