@@ -49,7 +49,7 @@ TARIFFS = {
 TARIFF_MODES = {
     "sozvuchie": "short_friend",  # 299 ₽ — Короткий друг
     "otrazhenie": "philosopher",  # 999 ₽ — Философ
-    "puteshestvie": "coach",      # 1999 ₽ — Коуч
+    "puteshestvie": "academic",   # 1999 ₽ — Академический
 }
 
 
