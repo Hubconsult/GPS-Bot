@@ -21,23 +21,23 @@ user_media_state = {}   # {chat_id: {"mode": "photo_gen"/"photo_analyze"/"pdf"/"
 def multimedia_menu():
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
-        types.InlineKeyboardButton("🖼 Генерация фото", callback_data="mm_photo_gen"),
-        types.InlineKeyboardButton("🔍 Анализ фото", callback_data="mm_photo_ana"),
-        types.InlineKeyboardButton("📑 PDF", callback_data="mm_pdf"),
-        types.InlineKeyboardButton("📊 Excel", callback_data="mm_excel"),
-        types.InlineKeyboardButton("🎞 Презентация", callback_data="mm_pptx"),
+        types.InlineKeyboardButton("Фото", callback_data="mm_photo_gen"),
+        types.InlineKeyboardButton("Анализ фото", callback_data="mm_photo_ana"),
+        types.InlineKeyboardButton("PDF", callback_data="mm_pdf"),
+        types.InlineKeyboardButton("Excel", callback_data="mm_excel"),
+        types.InlineKeyboardButton("Презентация", callback_data="mm_pptx"),
     )
-    kb.add(types.InlineKeyboardButton("🧩 Докупить пакеты", callback_data="mm_buy"))
+    kb.add(types.InlineKeyboardButton("Докупить пакеты", callback_data="mm_buy"))
     return kb
 
 def multimedia_buy_menu():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("📸 50 фото • 299 ₽", url=PAY_URL_PACK_PHOTO_50))
-    kb.add(types.InlineKeyboardButton("📸 200 фото • 799 ₽", url=PAY_URL_PACK_PHOTO_200))
-    kb.add(types.InlineKeyboardButton("📑 10 документов • 199 ₽", url=PAY_URL_PACK_DOC_10))
-    kb.add(types.InlineKeyboardButton("📑 30 документов • 499 ₽", url=PAY_URL_PACK_DOC_30))
-    kb.add(types.InlineKeyboardButton("🔍 20 анализов • 149 ₽", url=PAY_URL_PACK_ANALYZE_20))
-    kb.add(types.InlineKeyboardButton("🔍 100 анализов • 499 ₽", url=PAY_URL_PACK_ANALYZE_100))
+    kb.add(types.InlineKeyboardButton("50 фото • 299 ₽", url=PAY_URL_PACK_PHOTO_50))
+    kb.add(types.InlineKeyboardButton("200 фото • 799 ₽", url=PAY_URL_PACK_PHOTO_200))
+    kb.add(types.InlineKeyboardButton("10 документов • 199 ₽", url=PAY_URL_PACK_DOC_10))
+    kb.add(types.InlineKeyboardButton("30 документов • 499 ₽", url=PAY_URL_PACK_DOC_30))
+    kb.add(types.InlineKeyboardButton("20 анализов • 149 ₽", url=PAY_URL_PACK_ANALYZE_20))
+    kb.add(types.InlineKeyboardButton("100 анализов • 499 ₽", url=PAY_URL_PACK_ANALYZE_100))
     return kb
 
 # Вынесем определение включённых лимитов по активному тарифу
@@ -82,9 +82,9 @@ def out_of_limit_text(kind: str) -> str:
     }[kind]
     return f"🚫 Лимит {m} исчерпан. Оформи тариф или докупи пакет 👇"
 
-# --- Точка входа из главного меню: команда «Мультимедиа» ---
+# --- Точка входа из главного меню: команда «Медиа» ---
 
-@bot.message_handler(func=lambda msg: msg.text == "🎨 Мультимедиа")
+@bot.message_handler(func=lambda msg: msg.text == "Медиа")
 def open_multimedia(m):
     bot.send_message(m.chat.id, "Выбери функцию:", reply_markup=multimedia_menu())
 
