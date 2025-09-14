@@ -16,6 +16,9 @@ from tariffs import (
 )
 from hints import get_hint
 
+# Ensure media handlers are registered
+import media
+
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
     bot,
@@ -53,7 +56,8 @@ def send_and_store(chat_id, text, **kwargs):
 
 def main_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    kb.add("Чек-ин настроения", "Статистика", "Оплатить")
+    kb.add("Чек-ин настроения", "Статистика", "🎨 Мультимедиа")
+    kb.add("Оплатить")
     return kb
 
 
