@@ -370,7 +370,7 @@ def test_modes_menu(m):
     kb.add(
         types.InlineKeyboardButton("🎭 Короткий друг (2 сообщения)", callback_data="test_short_friend"),
         types.InlineKeyboardButton("📚 Философ (2 сообщения)", callback_data="test_philosopher"),
-        types.InlineKeyboardButton("🎓 Академический (2 сообщения)", callback_data="test_academic"),
+        types.InlineKeyboardButton("🧭 Академический (2 сообщения)", callback_data="test_academic"),
     )
     bot.send_message(
         m.chat.id,
