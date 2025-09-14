@@ -25,6 +25,7 @@ TARIFFS = {
         "starter_reward": give_smile,
         "category": "smiles",
         "pay_url": PAY_URL_HARMONY,
+        "media_limits": {"photos": 1, "docs": 1, "analysis": 1},
     },
     "otrazhenie": {
         "name": "🌿 Отражение",
@@ -33,6 +34,7 @@ TARIFFS = {
         "starter_reward": give_avatar,
         "category": "avatars",
         "pay_url": PAY_URL_REFLECTION,
+        "media_limits": {"photos": 30, "docs": 10, "analysis": 20},
     },
     "puteshestvie": {
         "name": "🌌 Путешествие",
@@ -41,6 +43,7 @@ TARIFFS = {
         "starter_reward": give_next_card,
         "category": "cards",
         "pay_url": PAY_URL_TRAVEL,
+        "media_limits": {"photos": 70, "docs": 20, "analysis": 30},
     },
 }
 
