@@ -1,3 +1,9 @@
 pyTelegramBotAPI
 openai
 python-dotenv
+
+reportlab
+openpyxl
+python-pptx
+requests
+Pillow
