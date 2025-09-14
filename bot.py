@@ -25,7 +25,7 @@ from settings import (
     client,
     FREE_LIMIT,
     HISTORY_LIMIT,
-    OWNER_IDS,
+    is_owner,
     PAY_URL_HARMONY,
     PAY_URL_REFLECTION,
     PAY_URL_TRAVEL,
@@ -81,7 +81,7 @@ def pay_inline():
 # --- Проверка лимита ---
 
 def check_limit(chat_id) -> bool:
-    if chat_id in OWNER_IDS:
+    if is_owner(chat_id):
         return True
     used = get_used_free(chat_id)
     if used >= FREE_LIMIT:

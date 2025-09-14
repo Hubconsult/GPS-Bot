@@ -7,7 +7,7 @@ from openai import OpenAI
 from settings import bot, client, TOKEN, IMAGE_MODEL, VISION_MODEL, \
     PAY_URL_PACK_PHOTO_50, PAY_URL_PACK_PHOTO_200, \
     PAY_URL_PACK_DOC_10, PAY_URL_PACK_DOC_30, \
-    PAY_URL_PACK_ANALYZE_20, PAY_URL_PACK_ANALYZE_100
+    PAY_URL_PACK_ANALYZE_20, PAY_URL_PACK_ANALYZE_100, is_owner
 from tariffs import TARIFFS, user_tariffs
 from storage import get_or_init_month_balance, dec_media, get_media_balance, \
                     read_trials, mark_trial_used, add_package
@@ -56,6 +56,8 @@ def ensure_month_balance(chat_id: int):
 
 # Мягкая проверка лимитов с учётом триала (по 1 штуке, если нет тарифа)
 def try_consume(chat_id: int, kind: str) -> bool:
+    if is_owner(chat_id):
+        return True
     # если есть активный тариф — работаем с месячным балансом
     if user_tariffs.get(chat_id):
         ensure_month_balance(chat_id)
