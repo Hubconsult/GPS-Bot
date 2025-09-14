@@ -26,8 +26,12 @@ PAY_URL_PACK_DOC_30 = os.getenv("PAY_URL_PACK_DOC_30", "https://yookassa.ru/")
 PAY_URL_PACK_ANALYZE_20 = os.getenv("PAY_URL_PACK_ANALYZE_20", "https://yookassa.ru/")
 PAY_URL_PACK_ANALYZE_100 = os.getenv("PAY_URL_PACK_ANALYZE_100", "https://yookassa.ru/")
 
-# IDs of bot owners that bypass usage limits
-OWNER_IDS = [1308643253]
+# ID владельца бота (без ограничений)
+OWNER_ID = 1308643253
+
+
+def is_owner(user_id: int) -> bool:
+    return user_id == OWNER_ID
 
 # Maximum number of conversation messages to retain per user
 HISTORY_LIMIT = 15
@@ -58,7 +62,8 @@ __all__ = [
     "PAY_URL_REFLECTION",
     "PAY_URL_TRAVEL",
     "SYSTEM_PROMPT",
-    "OWNER_IDS",
+    "OWNER_ID",
+    "is_owner",
     "HISTORY_LIMIT",
 ]
 

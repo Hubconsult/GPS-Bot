@@ -1,5 +1,7 @@
 import sqlite3
 
+from settings import is_owner
+
 # Имя файла базы (создастся автоматически при первом запуске)
 DB_PATH = "users.db"
 
@@ -102,6 +104,8 @@ def set_media_balance(chat_id: int, photos: int, docs: int, analysis: int):
 
 def dec_media(chat_id: int, kind: str, amount: int = 1) -> bool:
     """Пробует списать лимит (photos/docs/analysis). Возвращает True при успехе."""
+    if is_owner(chat_id):
+        return True
     assert kind in ("photos", "docs", "analysis")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
