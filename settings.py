@@ -14,6 +14,18 @@ PAY_URL_HARMONY = os.getenv("PAY_URL_HARMONY", "https://yookassa.ru/")
 PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION", "https://yookassa.ru/")
 PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL", "https://yookassa.ru/")
 
+# --- Новые настройки моделей для мультимедиа ---
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1")     # генерация изображений
+VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o-mini")   # анализ изображений (vision)
+
+# --- Урлы для докупки пакетов (можно оставить заглушки) ---
+PAY_URL_PACK_PHOTO_50 = os.getenv("PAY_URL_PACK_PHOTO_50", "https://yookassa.ru/")
+PAY_URL_PACK_PHOTO_200 = os.getenv("PAY_URL_PACK_PHOTO_200", "https://yookassa.ru/")
+PAY_URL_PACK_DOC_10 = os.getenv("PAY_URL_PACK_DOC_10", "https://yookassa.ru/")
+PAY_URL_PACK_DOC_30 = os.getenv("PAY_URL_PACK_DOC_30", "https://yookassa.ru/")
+PAY_URL_PACK_ANALYZE_20 = os.getenv("PAY_URL_PACK_ANALYZE_20", "https://yookassa.ru/")
+PAY_URL_PACK_ANALYZE_100 = os.getenv("PAY_URL_PACK_ANALYZE_100", "https://yookassa.ru/")
+
 # IDs of bot owners that bypass usage limits
 OWNER_IDS = [1308643253]
 
@@ -48,4 +60,15 @@ __all__ = [
     "SYSTEM_PROMPT",
     "OWNER_IDS",
     "HISTORY_LIMIT",
+]
+
+__all__ += [
+    "IMAGE_MODEL",
+    "VISION_MODEL",
+    "PAY_URL_PACK_PHOTO_50",
+    "PAY_URL_PACK_PHOTO_200",
+    "PAY_URL_PACK_DOC_10",
+    "PAY_URL_PACK_DOC_30",
+    "PAY_URL_PACK_ANALYZE_20",
+    "PAY_URL_PACK_ANALYZE_100",
 ]
