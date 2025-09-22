@@ -42,6 +42,17 @@ CHANNEL_USERNAME = "@GPT5_Navigator"
 CHANNEL_URL = "https://t.me/GPT5_Navigator"
 BOT_DEEP_LINK = "https://t.me/VnutrenniyGPS_bot"
 PHOTO_FILE = Path(__file__).resolve().parent / "5371038341350424631-1280x720.png"
+START_CAPTION = (
+    "<b>GPT-5 Навигатор</b>\n\n"
+    "Добро пожаловать. Это твой внутренний GPS.\n\n"
+    "Возможности:\n"
+    "— Psychological Astrologer: поиск смыслов в карте жизни\n"
+    "— Spiritual Psychologist: понимание глубинных процессов души\n"
+    "— Psychological Numerologist: числа как ключи к судьбе\n"
+    "— Поддержка 24/7, философские и дружеские разговоры\n"
+    "— Работа с фото и документами\n\n"
+    "Чтобы перейти к боту, требуется подписка на канал."
+)
 
 # --- Хранилища состояния пользователей ---
 user_moods = {}
@@ -73,27 +84,29 @@ def subscription_check_keyboard() -> types.InlineKeyboardMarkup:
     return kb
 
 
-def send_subscription_prompt(chat_id: int, user_id: int) -> None:
-    caption = (
-        "<b>GPT-5 Навигатор</b>\n\n"
-        "Добро пожаловать. Это твой внутренний GPS.\n\n"
-        "Возможности:\n"
-        "— Psychological Astrologer: поиск смыслов в карте жизни\n"
-        "— Spiritual Psychologist: понимание глубинных процессов души\n"
-        "— Psychological Numerologist: числа как ключи к судьбе\n"
-        "— Поддержка 24/7, философские и дружеские разговоры\n"
-        "— Работа с фото и документами\n\n"
-        "Чтобы перейти к боту, требуется подписка на канал."
-    )
-
+def send_start_window(chat_id) -> None:
     keyboard = subscription_check_keyboard()
 
     try:
         with PHOTO_FILE.open("rb") as photo:
-            bot.send_photo(chat_id, photo, caption=caption, reply_markup=keyboard)
+            bot.send_photo(
+                chat_id,
+                photo,
+                caption=START_CAPTION,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
     except FileNotFoundError:
-        bot.send_message(chat_id, caption, reply_markup=keyboard)
+        bot.send_message(
+            chat_id,
+            START_CAPTION,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
 
+
+def send_subscription_prompt(chat_id: int, user_id: int) -> None:
+    send_start_window(chat_id)
     pending_verification.add(user_id)
 
 
@@ -302,10 +315,25 @@ def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> 
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
 def start(m):
-    if ensure_verified(m.chat.id, m.from_user.id, remind=False, force_check=True):
-        send_welcome_menu(m.chat.id)
-    else:
-        send_subscription_prompt(m.chat.id, m.from_user.id)
+    send_subscription_prompt(m.chat.id, m.from_user.id)
+
+
+@bot.message_handler(commands=["publish"])
+def publish(m):
+    if not is_owner(m.from_user.id):
+        bot.reply_to(m, "❌ У вас нет прав для публикации стартового окна.")
+        return
+
+    try:
+        send_start_window(CHANNEL_USERNAME)
+    except Exception as exc:
+        bot.reply_to(m, f"❌ Не удалось опубликовать стартовое окно: {exc}")
+        return
+
+    bot.send_message(
+        m.chat.id,
+        "Стартовое окно опубликовано в канале. Закрепи его вручную.",
+    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "check_and_open")
