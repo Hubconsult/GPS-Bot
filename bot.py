@@ -15,12 +15,14 @@ from tariffs import (
     user_tariffs,
     activate_tariff,
     check_expiring_tariffs,
+    pay_inline,
 )
 from hints import get_hint
 from info import get_info_text, info_keyboard
 
 # Ensure media handlers are registered
 import media
+from media import multimedia_menu
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -164,6 +166,60 @@ def ensure_verified(
     return False
 
 
+# --- Регистрируем кнопки в меню Telegram (будут видны в канале под строкой чата)
+bot.set_my_commands([
+    types.BotCommand("info", "Тарифы и возможности GPT-5"),
+    types.BotCommand("pay", "Оплата тарифов"),
+    types.BotCommand("media", "Мультимедиа"),
+    types.BotCommand("profile", "Профиль"),
+])
+
+
+# --- /info
+@bot.message_handler(commands=["info"])
+def cmd_info(m):
+    bot.send_message(
+        m.chat.id,
+        get_info_text(),
+        reply_markup=info_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+# --- /pay
+@bot.message_handler(commands=["pay"])
+def cmd_pay(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
+    bot.send_message(
+        m.chat.id,
+        "Выберите тариф:",
+        reply_markup=pay_inline(),
+    )
+
+
+# --- /media
+@bot.message_handler(commands=["media"])
+def cmd_media(m):
+    bot.send_message(
+        m.chat.id,
+        "Доступные мультимедиа функции:",
+        reply_markup=multimedia_menu(),
+    )
+
+
+# --- /profile
+@bot.message_handler(commands=["profile"])
+def cmd_profile(m):
+    bot.send_message(
+        m.chat.id,
+        f"Ваш ID: {m.from_user.id}\n"
+        f"Имя: {m.from_user.first_name}\n"
+        "Подписка: FREE (по умолчанию)",
+    )
+
+
 def send_and_store(chat_id, text, **kwargs):
     msg = bot.send_message(chat_id, text, **kwargs)
     user_messages.setdefault(chat_id, []).append(msg.message_id)
@@ -195,16 +251,6 @@ def pay_menu():
     kb.add("🌿 Отражение — 999 ₽")
     kb.add("🌌 Путешествие — 1999 ₽")
     kb.add("⬅️ Назад")
-    return kb
-
-def pay_inline():
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    for key, t in TARIFFS.items():
-        kb.add(
-            types.InlineKeyboardButton(
-                f"{t['name']} • {t['price']} ₽", url=t["pay_url"]
-            )
-        )
     return kb
 
 # --- Проверка лимита ---
