@@ -2,6 +2,8 @@ import re
 import threading
 import time
 import datetime
+from pathlib import Path
+from typing import Set
 
 from storage import init_db, get_used_free, increment_used
 from telebot import types
@@ -35,6 +37,12 @@ from settings import (
 # Initialize the SQLite storage before handling any requests
 init_db()
 
+# --- Константы подписки ---
+CHANNEL_USERNAME = "@GPT5_Navigator"
+CHANNEL_URL = "https://t.me/GPT5_Navigator"
+BOT_DEEP_LINK = "https://t.me/VnutrenniyGPS_bot"
+PHOTO_FILE = Path(__file__).resolve().parent / "5371038341350424631-1280x720.png"
+
 # --- Хранилища состояния пользователей ---
 user_moods = {}
 # Хранилище истории сообщений пользователей
@@ -46,11 +54,118 @@ user_test_modes = {}  # {chat_id: {"short_friend": 0, "philosopher": 0, "academi
 # активный тестовый режим
 active_test_modes = {}  # {chat_id: mode_key}
 
+# --- Подтверждение подписки ---
+verified_users: Set[int] = set()
+pending_verification: Set[int] = set()
+
+
+def has_channel_subscription(user_id: int) -> bool:
+    try:
+        status = bot.get_chat_member(CHANNEL_USERNAME, user_id).status
+    except Exception:
+        return False
+    return status in {"member", "administrator", "creator"}
+
+
+def subscription_check_keyboard() -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Перейти к боту", callback_data="check_and_open"))
+    return kb
+
+
+def send_subscription_prompt(chat_id: int, user_id: int) -> None:
+    caption = (
+        "<b>GPT-5 Навигатор</b>\n\n"
+        "Добро пожаловать. Это твой внутренний GPS.\n\n"
+        "Возможности:\n"
+        "— Psychological Astrologer: поиск смыслов в карте жизни\n"
+        "— Spiritual Psychologist: понимание глубинных процессов души\n"
+        "— Psychological Numerologist: числа как ключи к судьбе\n"
+        "— Поддержка 24/7, философские и дружеские разговоры\n"
+        "— Работа с фото и документами\n\n"
+        "Чтобы перейти к боту, требуется подписка на канал."
+    )
+
+    keyboard = subscription_check_keyboard()
+
+    try:
+        with PHOTO_FILE.open("rb") as photo:
+            bot.send_photo(chat_id, photo, caption=caption, reply_markup=keyboard)
+    except FileNotFoundError:
+        bot.send_message(chat_id, caption, reply_markup=keyboard)
+
+    pending_verification.add(user_id)
+
+
+def send_subscription_reminder(chat_id: int, user_id: int, *, force: bool = False) -> None:
+    if not force and user_id in pending_verification:
+        return
+
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Подписаться на канал", url=CHANNEL_URL))
+    kb.add(types.InlineKeyboardButton("Проверить подписку", callback_data="check_and_open"))
+
+    bot.send_message(
+        chat_id,
+        (
+            "Для использования бота нужно подписаться на канал @GPT5_Navigator.\n"
+            "После подписки нажмите «Проверить подписку»."
+        ),
+        reply_markup=kb,
+    )
+
+    pending_verification.add(user_id)
+
+
+def send_subscription_confirmed(chat_id: int) -> None:
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Открыть бота", url=BOT_DEEP_LINK))
+    bot.send_message(
+        chat_id,
+        "Подписка подтверждена. Теперь вы можете перейти к боту.",
+        reply_markup=kb,
+    )
+
+
+def ensure_verified(
+    chat_id: int,
+    user_id: int,
+    *,
+    remind: bool = True,
+    force_check: bool = False,
+) -> bool:
+    if not force_check and user_id in verified_users:
+        return True
+
+    if has_channel_subscription(user_id):
+        verified_users.add(user_id)
+        pending_verification.discard(user_id)
+        return True
+
+    verified_users.discard(user_id)
+
+    if remind:
+        send_subscription_reminder(chat_id, user_id)
+
+    return False
+
 
 def send_and_store(chat_id, text, **kwargs):
     msg = bot.send_message(chat_id, text, **kwargs)
     user_messages.setdefault(chat_id, []).append(msg.message_id)
     return msg
+
+# --- Общие сообщения ---
+
+
+def send_welcome_menu(chat_id: int) -> None:
+    user_moods[chat_id] = []
+    text = (
+        "<b>Внутренний GPS</b>\n"
+        "● online\n\n"
+        "Привет 👋 Я твой Внутренний GPS!"
+    )
+    send_and_store(chat_id, text, reply_markup=main_menu())
 
 # --- Клавиатуры ---
 
@@ -83,6 +198,10 @@ def pay_inline():
 def check_limit(chat_id) -> bool:
     if is_owner(chat_id):
         return True
+
+    if not ensure_verified(chat_id, chat_id, force_check=True):
+        return False
+
     used = get_used_free(chat_id)
     if used >= FREE_LIMIT:
         bot.send_message(
@@ -183,13 +302,27 @@ def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> 
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
 def start(m):
-    user_moods[m.chat.id] = []
-    text = (
-        "<b>Внутренний GPS</b>\n"
-        "● online\n\n"
-        "Привет 👋 Я твой Внутренний GPS!"
-    )
-    send_and_store(m.chat.id, text, reply_markup=main_menu())
+    if ensure_verified(m.chat.id, m.from_user.id, remind=False, force_check=True):
+        send_welcome_menu(m.chat.id)
+    else:
+        send_subscription_prompt(m.chat.id, m.from_user.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "check_and_open")
+def check_and_open(call):
+    was_verified = call.from_user.id in verified_users
+
+    if ensure_verified(call.message.chat.id, call.from_user.id, remind=False, force_check=True):
+        if was_verified:
+            bot.answer_callback_query(call.id, "✅ Подписка уже подтверждена")
+        else:
+            bot.answer_callback_query(call.id, "✅ Подписка подтверждена")
+            send_subscription_confirmed(call.message.chat.id)
+
+        send_welcome_menu(call.message.chat.id)
+    else:
+        bot.answer_callback_query(call.id, "❌ Подписка не найдена")
+        send_subscription_reminder(call.message.chat.id, call.from_user.id, force=True)
 
 @bot.message_handler(func=lambda msg: msg.text == "Чек-ин")
 def mood_start(m):
@@ -225,6 +358,9 @@ def stats(m):
 
 @bot.message_handler(func=lambda msg: msg.text == "Оплата")
 def pay_button(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     send_and_store(
         m.chat.id,
         "Выбери тариф 👇",
@@ -240,6 +376,9 @@ def pay_button(m):
     ]
 )
 def tariffs(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     if "Созвучие" in m.text:
         url = PAY_URL_HARMONY
     elif "Отражение" in m.text:
@@ -255,11 +394,19 @@ def tariffs(m):
 
 @bot.message_handler(func=lambda msg: msg.text == "⬅️ Назад")
 def back_to_menu(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     send_and_store(m.chat.id, "Главное меню:", reply_markup=main_menu())
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "back")
 def callback_back(call):
+    bot.answer_callback_query(call.id)
+
+    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
+        return
+
     send_and_store(
         call.message.chat.id,
         "Главное меню:",
@@ -269,6 +416,9 @@ def callback_back(call):
 # --- Команда для показа тарифов ---
 @bot.message_handler(commands=["tariffs"])
 def show_tariffs(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     text = "📜 <b>Выбери свой путь</b>\n\n"
     for key, t in TARIFFS.items():
         text += f"{t['name']} — {t['price']} ₽/мес.\n{t['description']}\n\n"
@@ -286,6 +436,9 @@ def show_tariffs(m):
 # --- Активация тарифа ---
 @bot.message_handler(commands=["activate"])
 def activate(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     parts = m.text.split()
     if len(parts) < 2:
         send_and_store(
@@ -304,6 +457,9 @@ def activate(m):
 # --- Подсказка ---
 @bot.message_handler(commands=["hint"])
 def hint(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     parts = m.text.split()
     if len(parts) < 3:
         send_and_store(
@@ -334,6 +490,9 @@ def hint(m):
     )
 )
 def who_are_you(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     text = (
         "Я работаю на базе GPT-5, новейшей модели. "
         "GPT-5 обеспечивает более глубокую проработку диалога, высокую точность "
@@ -369,6 +528,9 @@ def background_checker():
 # --- Тестовые режимы ---
 @bot.message_handler(commands=["testmodes"])
 def test_modes_menu(m):
+    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
+        return
+
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
         types.InlineKeyboardButton("🎭 Короткий друг (2 сообщения)", callback_data="test_short_friend"),
@@ -384,6 +546,10 @@ def test_modes_menu(m):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("test_"))
 def run_test_mode(call):
+    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
+        bot.answer_callback_query(call.id)
+        return
+
     mode_key = call.data.replace("test_", "")
     if call.message.chat.id not in user_test_modes:
         user_test_modes[call.message.chat.id] = {"short_friend": 0, "philosopher": 0, "academic": 0}
