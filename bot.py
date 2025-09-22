@@ -17,6 +17,7 @@ from tariffs import (
     check_expiring_tariffs,
 )
 from hints import get_hint
+from info import get_info_text, info_keyboard
 
 # Ensure media handlers are registered
 import media
@@ -391,6 +392,11 @@ def pay_button(m):
 
     send_and_store(
         m.chat.id,
+        get_info_text(),
+        reply_markup=info_keyboard(),
+    )
+    send_and_store(
+        m.chat.id,
         "Выбери тариф 👇",
         reply_markup=pay_menu()
     )
@@ -430,6 +436,20 @@ def back_to_menu(m):
 
 @bot.callback_query_handler(func=lambda call: call.data == "back")
 def callback_back(call):
+    bot.answer_callback_query(call.id)
+
+    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
+        return
+
+    send_and_store(
+        call.message.chat.id,
+        "Главное меню:",
+        reply_markup=main_menu()
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_menu")
+def callback_back_to_menu(call):
     bot.answer_callback_query(call.id)
 
     if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
