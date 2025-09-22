@@ -10,6 +10,7 @@ import datetime
 
 from rewards import give_smile, give_avatar, give_next_card
 from settings import PAY_URL_HARMONY, PAY_URL_REFLECTION, PAY_URL_TRAVEL
+from telebot import types
 
 
 # --- Storage for active subscriptions ---
@@ -54,6 +55,19 @@ TARIFF_MODES = {
     "otrazhenie": "philosopher",  # 999 ₽ — Философ
     "puteshestvie": "academic",   # 1999 ₽ — Академический
 }
+
+
+def pay_inline() -> types.InlineKeyboardMarkup:
+    """Build an inline keyboard with tariff payment buttons."""
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    for tariff in TARIFFS.values():
+        keyboard.add(
+            types.InlineKeyboardButton(
+                f"{tariff['name']} • {tariff['price']} ₽", url=tariff["pay_url"]
+            )
+        )
+    return keyboard
 
 
 def activate_tariff(chat_id: int, tariff_key: str):
