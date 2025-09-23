@@ -15,8 +15,9 @@ from tariffs import (
     user_tariffs,
     activate_tariff,
     check_expiring_tariffs,
-    pay_inline,
+    start_payment,
 )
+from payments_polling import start_payments_checker
 from hints import get_hint
 from info import get_info_text, info_keyboard
 
@@ -84,6 +85,18 @@ def has_channel_subscription(user_id: int) -> bool:
 def subscription_check_keyboard() -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("Перейти к боту", callback_data="check_and_open"))
+    return kb
+
+
+def pay_inline(chat_id: int) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for key, tariff in TARIFFS.items():
+        url = start_payment(chat_id, key)
+        kb.add(
+            types.InlineKeyboardButton(
+                f"{tariff['name']} • {tariff['price']} ₽", url=url
+            )
+        )
     return kb
 
 
@@ -195,7 +208,7 @@ def cmd_pay(m):
     bot.send_message(
         m.chat.id,
         "Выберите тариф:",
-        reply_markup=pay_inline(),
+        reply_markup=pay_inline(m.chat.id),
     )
 
 
@@ -267,7 +280,7 @@ def check_limit(chat_id) -> bool:
         bot.send_message(
             chat_id,
             "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\nВыберите тариф 👇",
-            reply_markup=pay_inline(),
+            reply_markup=pay_inline(chat_id),
         )
         return False
     return True
@@ -684,6 +697,7 @@ def fallback(m):
 
 # --- Запуск ---
 if __name__ == "__main__":
+    start_payments_checker()  # запуск фоновой проверки оплат
     threading.Thread(target=background_checker, daemon=True).start()
     bot.infinity_polling(skip_pending=True)
 

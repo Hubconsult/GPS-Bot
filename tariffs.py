@@ -8,9 +8,16 @@ checking for expiring ones.
 
 import datetime
 
+from yookassa import Configuration, Payment
+
 from rewards import give_smile, give_avatar, give_next_card
-from settings import PAY_URL_HARMONY, PAY_URL_REFLECTION, PAY_URL_TRAVEL
-from telebot import types
+from settings import (
+    PAY_URL_HARMONY,
+    PAY_URL_REFLECTION,
+    PAY_URL_TRAVEL,
+    YOOKASSA_API_KEY,
+    YOOKASSA_SHOP_ID,
+)
 
 
 # --- Storage for active subscriptions ---
@@ -49,6 +56,11 @@ TARIFFS = {
 }
 
 
+# Настраиваем YooKassa SDK
+Configuration.account_id = YOOKASSA_SHOP_ID
+Configuration.secret_key = YOOKASSA_API_KEY
+
+
 # --- Mapping tariffs to dialogue modes ---
 TARIFF_MODES = {
     "sozvuchie": "short_friend",  # 299 ₽ — Короткий друг
@@ -57,17 +69,31 @@ TARIFF_MODES = {
 }
 
 
-def pay_inline() -> types.InlineKeyboardMarkup:
-    """Build an inline keyboard with tariff payment buttons."""
+def start_payment(
+    chat_id: int,
+    tariff_key: str,
+    return_url: str = "https://t.me/VnutrenniyGPS_bot",
+) -> str:
+    from payments_polling import add_payment
 
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-    for tariff in TARIFFS.values():
-        keyboard.add(
-            types.InlineKeyboardButton(
-                f"{tariff['name']} • {tariff['price']} ₽", url=tariff["pay_url"]
-            )
-        )
-    return keyboard
+    tariff = TARIFFS[tariff_key]
+    payment = Payment.create(
+        {
+            "amount": {
+                "value": f"{tariff['price']:.2f}",
+                "currency": "RUB",
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": return_url,
+            },
+            "capture": True,
+            "description": f"Оплата тарифа {tariff['name']}",
+            "metadata": {"chat_id": chat_id, "tariff": tariff_key},
+        }
+    )
+    add_payment(chat_id, tariff_key, payment.id)
+    return payment.confirmation.confirmation_url
 
 
 def activate_tariff(chat_id: int, tariff_key: str):
