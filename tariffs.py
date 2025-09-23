@@ -1,17 +1,19 @@
 # tariffs.py
-"""Tariff definitions and subscription management.
-
-This module describes available tariffs, keeps track of active user
-subscriptions and provides helper functions for activating tariffs and
-checking for expiring ones.
-"""
+"""Tariff definitions and subscription management."""
 
 import datetime
+import random
 import sqlite3
 
 from yookassa import Configuration, Payment
 
-from rewards import give_smile, give_avatar, give_next_card
+from rewards import (
+    AVATAR_REWARDS,
+    BACKGROUND_REWARDS,
+    CARD_REWARDS,
+    ICON_REWARDS,
+    send_reward,
+)
 from settings import (
     PAY_URL_HARMONY,
     PAY_URL_REFLECTION,
@@ -29,29 +31,31 @@ user_tariffs = {}  # {chat_id: {"tariff": str, "start": date, "end": date}}
 # --- Tariff definitions ---
 TARIFFS = {
     "sozvuchie": {
-        "name": "🌱 Созвучие",
+        "name": "Созвучие",
         "price": 299,
-        "description": "Первое прикосновение к себе: смайлы и GPT-5 Mini.",
-        "starter_reward": give_smile,
-        "category": "smiles",
+        "description": "Тариф «Созвучие» открывает доступ к коллекции иконок.",
+        "starter_reward": lambda chat_id: send_reward(chat_id, random.choice(ICON_REWARDS)),
+        "category": "icons",
         "pay_url": PAY_URL_HARMONY,
         "media_limits": {"photos": 1, "docs": 1, "analysis": 1},
     },
     "otrazhenie": {
-        "name": "🌿 Отражение",
+        "name": "Отражение",
         "price": 999,
-        "description": "Видеть себя яснее: аватарки и GPT-5 обычный.",
-        "starter_reward": give_avatar,
+        "description": "Тариф «Отражение» открывает доступ к аватаркам.",
+        "starter_reward": lambda chat_id: send_reward(chat_id, random.choice(AVATAR_REWARDS)),
         "category": "avatars",
         "pay_url": PAY_URL_REFLECTION,
         "media_limits": {"photos": 30, "docs": 10, "analysis": 20},
     },
     "puteshestvie": {
-        "name": "🌌 Путешествие",
+        "name": "Путешествие",
         "price": 1999,
-        "description": "Глубокое исследование: карточки историй и полный доступ к GPT-5.",
-        "starter_reward": give_next_card,
-        "category": "cards",
+        "description": "Тариф «Путешествие» открывает доступ к карточкам историй и фонам.",
+        "starter_reward": lambda chat_id: send_reward(
+            chat_id, random.choice(CARD_REWARDS + BACKGROUND_REWARDS)
+        ),
+        "category": "journey",
         "pay_url": PAY_URL_TRAVEL,
         "media_limits": {"photos": 70, "docs": 20, "analysis": 30},
     },
@@ -106,6 +110,7 @@ def activate_tariff(chat_id: int, tariff_key: str):
     tariff = TARIFFS[tariff_key]
     reward_func = tariff["starter_reward"]
     reward = reward_func(chat_id)
+    reward_title = reward.get("title") if isinstance(reward, dict) else str(reward)
 
     start_date = datetime.date.today()
     end_date = start_date + datetime.timedelta(days=30)
@@ -130,7 +135,8 @@ def activate_tariff(chat_id: int, tariff_key: str):
     message = (
         f"✨ Ты подключил тариф <b>{tariff['name']}</b>!\n\n"
         f"{tariff['description']}\n"
-        f"Подписка активна до: {end_date.strftime('%d.%m.%Y')}"
+        f"Подписка активна до: {end_date.strftime('%d.%m.%Y')}\n"
+        f"Твоя первая награда: {reward_title}"
     )
     return reward, message
 
