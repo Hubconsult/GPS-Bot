@@ -12,9 +12,15 @@ def init_db():
     c.execute("""
     CREATE TABLE IF NOT EXISTS users (
         chat_id INTEGER PRIMARY KEY,
-        used_free INT DEFAULT 0
+        used_free INT DEFAULT 0,
+        has_tariff INTEGER DEFAULT 0
     )
     """)
+    # Миграция: если колонка has_tariff отсутствует в старой таблице — добавляем
+    c.execute("PRAGMA table_info(users)")
+    columns = [row[1] for row in c.fetchall()]
+    if "has_tariff" not in columns:
+        c.execute("ALTER TABLE users ADD COLUMN has_tariff INTEGER DEFAULT 0")
     conn.commit()
     conn.close()
 
@@ -32,7 +38,10 @@ def increment_used(chat_id: int):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     # Если пользователя ещё нет в базе — создаём
-    c.execute("INSERT OR IGNORE INTO users(chat_id, used_free) VALUES(?, 0)", (chat_id,))
+    c.execute(
+        "INSERT OR IGNORE INTO users(chat_id, used_free, has_tariff) VALUES(?, 0, 0)",
+        (chat_id,),
+    )
     # Увеличиваем количество использованных сообщений
     c.execute("UPDATE users SET used_free = used_free + 1 WHERE chat_id = ?", (chat_id,))
     conn.commit()

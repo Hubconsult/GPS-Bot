@@ -1,16 +1,34 @@
 import base64
 import io
+from datetime import date, datetime
+
 import requests
 from telebot import types
 from openai import OpenAI
 
-from settings import bot, client, TOKEN, IMAGE_MODEL, VISION_MODEL, \
-    PAY_URL_PACK_PHOTO_50, PAY_URL_PACK_PHOTO_200, \
-    PAY_URL_PACK_DOC_10, PAY_URL_PACK_DOC_30, \
-    PAY_URL_PACK_ANALYZE_20, PAY_URL_PACK_ANALYZE_100, is_owner
+from settings import (
+    bot,
+    client,
+    TOKEN,
+    IMAGE_MODEL,
+    VISION_MODEL,
+    PAY_URL_PACK_PHOTO_50,
+    PAY_URL_PACK_PHOTO_200,
+    PAY_URL_PACK_DOC_10,
+    PAY_URL_PACK_DOC_30,
+    PAY_URL_PACK_ANALYZE_20,
+    PAY_URL_PACK_ANALYZE_100,
+    is_owner,
+)
 from tariffs import TARIFFS, user_tariffs
-from storage import get_or_init_month_balance, dec_media, get_media_balance, \
-                    read_trials, mark_trial_used, add_package
+from storage import (
+    get_or_init_month_balance,
+    dec_media,
+    get_media_balance,
+    read_trials,
+    mark_trial_used,
+    add_package,
+)
 from media_utils import make_pdf, make_excel, make_pptx
 
 # Состояние простое: что от пользователя ждём далее
@@ -49,6 +67,19 @@ def _included_limits_for(chat_id: int) -> dict:
     tariff = TARIFFS.get(tariff_key, {})
     return tariff.get("media_limits", {"photos": 0, "docs": 0, "analysis": 0})
 
+
+def _tariff_is_active(chat_id: int) -> bool:
+    info = user_tariffs.get(chat_id)
+    if not info:
+        return False
+    end = info.get("end")
+    if isinstance(end, datetime):
+        return end > datetime.now()
+    if isinstance(end, date):
+        return end >= datetime.now().date()
+    return False
+
+
 # Проверка и инициализация баланса на месяц (если нет — поставим из тарифа)
 def ensure_month_balance(chat_id: int):
     defaults = _included_limits_for(chat_id)
@@ -57,6 +88,9 @@ def ensure_month_balance(chat_id: int):
 # Мягкая проверка лимитов с учётом триала (по 1 штуке, если нет тарифа)
 def try_consume(chat_id: int, kind: str) -> bool:
     if is_owner(chat_id):
+        return True
+    # если есть активный тариф → не проверяем лимиты
+    if _tariff_is_active(chat_id):
         return True
     # если есть активный тариф — работаем с месячным балансом
     if user_tariffs.get(chat_id):
