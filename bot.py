@@ -260,9 +260,9 @@ def main_menu():
 
 def pay_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    kb.add("🌱 Созвучие — 299 ₽")
-    kb.add("🌿 Отражение — 999 ₽")
-    kb.add("🌌 Путешествие — 1999 ₽")
+    kb.add("Созвучие • иконки — 299 ₽")
+    kb.add("Отражение • аватарки — 999 ₽")
+    kb.add("Путешествие • истории и фоны — 1999 ₽")
     kb.add("⬅️ Назад")
     return kb
 
@@ -463,9 +463,9 @@ def pay_button(m):
 
 @bot.message_handler(
     func=lambda msg: msg.text in [
-        "🌱 Созвучие — 299 ₽",
-        "🌿 Отражение — 999 ₽",
-        "🌌 Путешествие — 1999 ₽",
+        "Созвучие • иконки — 299 ₽",
+        "Отражение • аватарки — 999 ₽",
+        "Путешествие • истории и фоны — 1999 ₽",
     ]
 )
 def tariffs(m):
@@ -555,11 +555,8 @@ def activate(m):
         return
 
     tariff_key = parts[1]
-    reward, msg = activate_tariff(m.chat.id, tariff_key)
-    if reward:
-        send_and_store(m.chat.id, f"{msg}\n\nТвоя первая награда: {reward}")
-    else:
-        send_and_store(m.chat.id, msg)
+    _reward, msg = activate_tariff(m.chat.id, tariff_key)
+    send_and_store(m.chat.id, msg)
 
 # --- Подсказка ---
 @bot.message_handler(commands=["hint"])

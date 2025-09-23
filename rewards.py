@@ -1,81 +1,98 @@
-# rewards.py
-import random
+# -*- coding: utf-8 -*-
+"""Reward catalog and helper for delivering starter gifts."""
 
-# --- Смайлы (коллекция эмоций) ---
-SMILES = [
-    "😊", "😟", "😴", "😡",
-    "🥰", "🤔", "😭", "😎",
-    "😅", "🤯", "😇", "🤗",
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict
+
+from settings import bot
+
+ASSETS_DIR = Path(__file__).resolve().parent
+
+
+# === СОЗВУЧИЕ (иконки) ===
+ICON_REWARDS = [
+    {"id": 1, "title": "Солнце", "file": "Солнце.png"},
+    {"id": 2, "title": "Замок", "file": "Замок.png"},
+    {"id": 3, "title": "Дракон", "file": "Дракон.png"},
+    {"id": 4, "title": "Росток", "file": "Росток.png"},
+    {"id": 5, "title": "Шар", "file": "Шар.png"},
+    {"id": 6, "title": "Сова", "file": "Сова.png"},
+    {"id": 7, "title": "Маска", "file": "Маска.png"},
+    {"id": 8, "title": "Феникс", "file": "Феникс.png"},
+    {"id": 9, "title": "Кролик", "file": "Кролик.png"},
 ]
 
-# --- Аватарки (файлы-образы) ---
-AVATARS = [
-    "Волна.png", "Замок.png", "Росток.png", "Феникс.png",
-    "Сова.png", "Маска.png", "Дракон.png", "Город масок.png",
-    "Кролик.png", "Шар.png", "Хрустальный шар.png", "Солнце.png",
+
+# === ОТРАЖЕНИЕ (аватарки) ===
+AVATAR_REWARDS = [
+    {"id": 10, "title": "Волна", "file": "Волна (avatar).png"},
+    {"id": 11, "title": "Кролик", "file": "Кролик (avatar).png"},
+    {"id": 12, "title": "Росток", "file": "Росток (avatar).png"},
+    {"id": 13, "title": "Шар", "file": "Шар (avatar).png"},
+    {"id": 14, "title": "Сова", "file": "Сова (avatar).png"},
+    {"id": 15, "title": "Замок", "file": "Замок (avatar).png"},
+    {"id": 16, "title": "Маска", "file": "Маска (avatar).png"},
+    {"id": 17, "title": "Феникс", "file": "Феникс (avatar).png"},
+    {"id": 18, "title": "Солнце", "file": "Солнце (avatar).png"},
 ]
 
-# --- Карточки с историями (строго по порядку) ---
-STORY_CARDS = [
-    {"id": 1, "title": "Искра во тьме", "file": None},
-    {"id": 2, "title": "Башня ветров", "file": "Башня ветров.png"},
-    {"id": 3, "title": "Мир песков", "file": "Мир песков.png"},
-    {"id": 4, "title": "Храм времени", "file": "Храм времени.png"},
-    {"id": 5, "title": "Остров тайн", "file": "Остров тайн.png"},
-    {"id": 6, "title": "Лес теней", "file": "Лес теней.png"},
-    {"id": 7, "title": "Мост забытых", "file": "Мост забытых.png"},
-    {"id": 8, "title": "Врата начала", "file": "Врата начала.png"},
-    {"id": 9, "title": "Лунный лес", "file": "Лунный лес.png"},
-    {"id": 10, "title": "Огненный закат", "file": "Огненный закат.png"},
+
+# === ПУТЕШЕСТВИЕ (карточки историй) ===
+CARD_REWARDS = [
+    {"id": 19, "title": "Искра во тьме", "file": "Искра во тьме.png"},
+    {"id": 20, "title": "Башня ветров", "file": "Башня ветров.png"},
+    {"id": 21, "title": "Мир песков", "file": "Мир песков.png"},
+    {"id": 22, "title": "Храм времени", "file": "Храм времени.png"},
+    {"id": 23, "title": "Остров тайн", "file": "Остров тайн.png"},
+    {"id": 24, "title": "Лес теней", "file": "Лес теней.png"},
+    {"id": 25, "title": "Мост забытых", "file": "Мост забытых.png"},
+    {"id": 26, "title": "Врата начала", "file": "Врата начала.png"},
+    {"id": 27, "title": "Лунный лес", "file": "Лунный лес.png"},
+    {"id": 28, "title": "Город масок", "file": "Город масок.png"},
+    {"id": 29, "title": "Озеро зеркал", "file": "Озеро зеркал.png"},
 ]
 
-# --- Фоны (редкие награды) ---
-BACKGROUNDS = [
-    {"id": 1, "title": "Звёздная ночь 🌌", "file": None},
-    {"id": 2, "title": "Кристаллический рассвет ✨", "file": "Кристаллический рассвет.png"},
-    {"id": 3, "title": "Лесное свечение", "file": "Лесное свечение.png"},
-    {"id": 4, "title": "Огненный закат", "file": "Огненный закат.png"},
+
+# === ПУТЕШЕСТВИЕ (фоны) ===
+BACKGROUND_REWARDS = [
+    {"id": 30, "title": "Кристаллический рассвет", "file": "Кристаллический рассвет.png"},
+    {"id": 31, "title": "Лесное свечение", "file": "Лесное свечение.png"},
+    {"id": 32, "title": "Огненный закат", "file": "Огненный закат.png"},
 ]
 
-# --- Хранилище наград пользователей ---
-user_rewards = {}  # {chat_id: {"smiles": [], "avatars": [], "cards": [], "backgrounds": []}}
 
-def init_user(chat_id):
-    if chat_id not in user_rewards:
-        user_rewards[chat_id] = {"smiles": [], "avatars": [], "cards": [], "backgrounds": []}
-
-def give_smile(chat_id):
-    init_user(chat_id)
-    available = [s for s in SMILES if s not in user_rewards[chat_id]["smiles"]]
-    if available:
-        smile = random.choice(available)
-        user_rewards[chat_id]["smiles"].append(smile)
-        return smile
+def _resolve_path(file_name: str | None) -> Path | None:
+    if not file_name:
+        return None
+    candidate = ASSETS_DIR / file_name
+    if candidate.exists():
+        return candidate
     return None
 
-def give_avatar(chat_id):
-    init_user(chat_id)
-    available = [a for a in AVATARS if a not in user_rewards[chat_id]["avatars"]]
-    if available:
-        avatar = random.choice(available)
-        user_rewards[chat_id]["avatars"].append(avatar)
-        return avatar
-    return None
 
-def give_next_card(chat_id):
-    init_user(chat_id)
-    owned = user_rewards[chat_id]["cards"]
-    next_index = len(owned)
-    if next_index < len(STORY_CARDS):
-        card = STORY_CARDS[next_index]
-        user_rewards[chat_id]["cards"].append(card)
-        return card
-    return None
+def send_reward(chat_id: int, reward: Dict) -> Dict:
+    """Send the reward to the user and return metadata."""
 
-def give_background(chat_id, bg_id):
-    init_user(chat_id)
-    bg = next((b for b in BACKGROUNDS if b["id"] == bg_id), None)
-    if bg and bg not in user_rewards[chat_id]["backgrounds"]:
-        user_rewards[chat_id]["backgrounds"].append(bg)
-        return bg
-    return None
+    title = reward.get("title", "Награда")
+    file_name = reward.get("file")
+    file_path = _resolve_path(file_name)
+
+    if file_path is not None:
+        with file_path.open("rb") as fh:
+            bot.send_photo(chat_id, fh, caption=f"🏅 {title}")
+    else:
+        bot.send_message(chat_id, f"🏅 {title}")
+
+    return reward
+
+
+__all__ = [
+    "ICON_REWARDS",
+    "AVATAR_REWARDS",
+    "CARD_REWARDS",
+    "BACKGROUND_REWARDS",
+    "send_reward",
+]
+
