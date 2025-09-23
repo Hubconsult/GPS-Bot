@@ -7,6 +7,7 @@ checking for expiring ones.
 """
 
 import datetime
+import sqlite3
 
 from yookassa import Configuration, Payment
 
@@ -18,6 +19,7 @@ from settings import (
     YOOKASSA_API_KEY,
     YOOKASSA_SHOP_ID,
 )
+from storage import DB_PATH
 
 
 # --- Storage for active subscriptions ---
@@ -113,6 +115,17 @@ def activate_tariff(chat_id: int, tariff_key: str):
         "start": start_date,
         "end": end_date,
     }
+
+    # фиксируем в базе
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR IGNORE INTO users(chat_id, used_free, has_tariff) VALUES(?, 0, 1)",
+        (chat_id,),
+    )
+    c.execute("UPDATE users SET has_tariff=1 WHERE chat_id=?", (chat_id,))
+    conn.commit()
+    conn.close()
 
     message = (
         f"✨ Ты подключил тариф <b>{tariff['name']}</b>!\n\n"
