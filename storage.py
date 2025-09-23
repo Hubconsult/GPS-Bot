@@ -24,14 +24,24 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- Получить, сколько бесплатных сообщений уже использовал пользователь ---
-def get_used_free(chat_id: int) -> int:
+# --- Получить информацию об использовании и тарифе пользователя ---
+def get_user_usage(chat_id: int) -> tuple[int, int]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT used_free FROM users WHERE chat_id = ?", (chat_id,))
+    c.execute("SELECT used_free, has_tariff FROM users WHERE chat_id = ?", (chat_id,))
     row = c.fetchone()
     conn.close()
-    return row[0] if row else 0
+    if not row:
+        return 0, 0
+    used_free = row[0] if row[0] is not None else 0
+    has_tariff = row[1] if row[1] is not None else 0
+    return used_free, has_tariff
+
+
+# --- Получить, сколько бесплатных сообщений уже использовал пользователь ---
+def get_used_free(chat_id: int) -> int:
+    used_free, _ = get_user_usage(chat_id)
+    return used_free
 
 # --- Увеличить счётчик использованных сообщений ---
 def increment_used(chat_id: int):

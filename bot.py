@@ -5,7 +5,7 @@ import datetime
 from pathlib import Path
 from typing import Set
 
-from storage import init_db, get_used_free, increment_used
+from storage import init_db, get_user_usage, increment_used
 from telebot import types
 
 # Tariff configuration and state tracking
@@ -275,8 +275,8 @@ def check_limit(chat_id) -> bool:
     if not ensure_verified(chat_id, chat_id, force_check=True):
         return False
 
-    used = get_used_free(chat_id)
-    if used >= FREE_LIMIT:
+    used, has_tariff = get_user_usage(chat_id)
+    if has_tariff == 0 and used >= FREE_LIMIT:
         bot.send_message(
             chat_id,
             "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\nВыберите тариф 👇",
