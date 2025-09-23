@@ -7,3 +7,4 @@ openpyxl
 python-pptx
 requests
 Pillow
+yookassa
