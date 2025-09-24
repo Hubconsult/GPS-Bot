@@ -69,9 +69,9 @@ Configuration.secret_key = YOOKASSA_API_KEY
 
 # --- Mapping tariffs to dialogue modes ---
 TARIFF_MODES = {
-    "sozvuchie": "short_friend",  # 299 ₽ — Короткий друг
-    "otrazhenie": "philosopher",  # 999 ₽ — Философ
-    "puteshestvie": "academic",   # 1999 ₽ — Академический
+    "sozvuchie": "short_friend",  # 299₽ — Короткий друг
+    "otrazhenie": "philosopher",  # 999₽ — Философ
+    "puteshestvie": "academic",   # 1999₽ — Академический
 }
 
 
