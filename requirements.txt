@@ -1,5 +1,6 @@
 pyTelegramBotAPI
 openai
+redis
 python-dotenv
 
 reportlab

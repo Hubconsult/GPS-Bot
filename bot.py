@@ -5,7 +5,15 @@ import datetime
 from pathlib import Path
 from typing import Set
 
-from storage import init_db, get_user_usage, increment_used
+from storage import (
+    init_db,
+    get_user_usage,
+    increment_used,
+    load_history,
+    save_history,
+    clear_history,
+    iter_history_chat_ids,
+)
 from telebot import types
 
 # Tariff configuration and state tracking
@@ -60,7 +68,7 @@ START_CAPTION = (
 
 # --- Хранилища состояния пользователей ---
 user_moods = {}
-# Хранилище истории сообщений пользователей
+# Хранилище истории сообщений пользователей (локальный кэш)
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 user_messages = {}  # {chat_id: [message_id, ...]}
 
@@ -350,9 +358,9 @@ MODES = {
 
 def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> str:
     try:
-        history = user_histories.get(chat_id, [])
+        history = load_history(chat_id)
         history.append({"role": "user", "content": user_text})
-        history = history[-10:]
+        history = history[-HISTORY_LIMIT:]
         user_histories[chat_id] = history
 
         system_prompt = MODES[mode_key]["system_prompt"]
@@ -366,7 +374,9 @@ def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> 
 
         reply = response.choices[0].message.content.strip()
         history.append({"role": "assistant", "content": reply})
-        user_histories[chat_id] = history[-10:]
+        history = history[-HISTORY_LIMIT:]
+        save_history(chat_id, history)
+        user_histories[chat_id] = history
 
         return reply
     except Exception as e:
@@ -624,6 +634,8 @@ def background_checker():
                     except Exception:
                         pass
             user_messages.clear()
+            for chat_id in iter_history_chat_ids():
+                clear_history(chat_id)
             print("🧹 История всех пользователей и сообщения очищены")
 
         counter += 1
@@ -666,7 +678,8 @@ def run_test_mode(call):
     bot.send_message(call.message.chat.id, f"Спроси меня что-то в режиме <b>{MODES[mode_key]['name']}</b> 👇")
 
     # фиксируем, что активный тестовый режим запущен
-    user_histories[call.message.chat.id] = [{"role": "system", "content": MODES[mode_key]["system_prompt"]}]
+    clear_history(call.message.chat.id)
+    user_histories[call.message.chat.id] = []
     user_test_modes[call.message.chat.id][mode_key] += 1
     active_test_modes[call.message.chat.id] = mode_key
 
