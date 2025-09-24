@@ -1,9 +1,107 @@
+import json
 import sqlite3
+from typing import Any, Dict, List
+
+try:
+    import redis  # type: ignore
+except ImportError:  # pragma: no cover - fallback for environments without redis
+    redis = None
 
 from settings import is_owner
 
 # Имя файла базы (создастся автоматически при первом запуске)
 DB_PATH = "users.db"
+
+# --- Redis storage for chat history -------------------------------------------------
+
+_REDIS_TTL = 60 * 60 * 24 * 7  # 7 дней
+_REDIS_CHAT_SET_KEY = "chat:ids"
+
+_redis_client: "redis.Redis | None"
+if redis is None:
+    _redis_client = None
+else:
+    try:
+        _redis_client = redis.Redis(
+            host="localhost",
+            port=6379,
+            db=0,
+            decode_responses=True,
+        )
+        _redis_client.ping()
+    except redis.RedisError:
+        _redis_client = None
+
+# Локальный fallback, если Redis недоступен (офлайн режим)
+_memory_history: Dict[int, List[Dict[str, Any]]] = {}
+
+
+def _chat_key(chat_id: int) -> str:
+    return f"chat:{chat_id}"
+
+
+def save_history(chat_id: int, messages: List[Dict[str, Any]]) -> None:
+    """Сохранить историю диалога в Redis (или локально, если Redis недоступен)."""
+
+    serialized = json.dumps(messages, ensure_ascii=False)
+
+    if _redis_client is not None:
+        try:
+            pipeline = _redis_client.pipeline()
+            pipeline.setex(_chat_key(chat_id), _REDIS_TTL, serialized)
+            pipeline.sadd(_REDIS_CHAT_SET_KEY, chat_id)
+            pipeline.execute()
+            return
+        except redis.RedisError:
+            pass
+
+    # Fallback: храним историю локально в памяти
+    _memory_history[chat_id] = json.loads(serialized)
+
+
+def load_history(chat_id: int) -> List[Dict[str, Any]]:
+    """Загрузить историю диалога."""
+
+    if _redis_client is not None:
+        try:
+            data = _redis_client.get(_chat_key(chat_id))
+        except redis.RedisError:
+            data = None
+        if data:
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError:
+                # повреждённые данные очищаем
+                clear_history(chat_id)
+
+    history = _memory_history.get(chat_id, [])
+    # Возвращаем копию, чтобы не модифицировать оригинал
+    return json.loads(json.dumps(history)) if history else []
+
+
+def clear_history(chat_id: int) -> None:
+    """Удалить историю вручную."""
+
+    if _redis_client is not None:
+        try:
+            _redis_client.delete(_chat_key(chat_id))
+            _redis_client.srem(_REDIS_CHAT_SET_KEY, chat_id)
+        except redis.RedisError:
+            pass
+
+    _memory_history.pop(chat_id, None)
+
+
+def iter_history_chat_ids() -> List[int]:
+    """Вернуть список chat_id, у которых есть сохранённая история."""
+
+    if _redis_client is not None:
+        try:
+            members = _redis_client.smembers(_REDIS_CHAT_SET_KEY)
+            return [int(member) for member in members]
+        except redis.RedisError:
+            pass
+    return list(_memory_history.keys())
 
 # --- Инициализация базы ---
 def init_db():
