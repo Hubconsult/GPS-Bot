@@ -1,5 +1,8 @@
 import json
 import sqlite3
+import threading
+import time
+from datetime import date
 from typing import Any, Dict, List
 
 try:
@@ -7,33 +10,226 @@ try:
 except ImportError:  # pragma: no cover - fallback for environments without redis
     redis = None
 
-from settings import is_owner
+from settings import OWNER_ID, bot, is_owner
+
+TTL = 60 * 60 * 24 * 7  # 7 дней
+_REDIS_CHAT_SET_KEY = "chat:ids"
+_last_alert_date: date | None = None
+_last_status_ok = True
+
+
+def _create_redis_client() -> "redis.Redis | None":
+    if redis is None:
+        return None
+    try:
+        client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+        client.ping()
+        return client
+    except redis.RedisError:
+        return None
+
+
+class InMemoryRedis:
+    """Простейшая in-memory реализация минимального набора команд Redis."""
+
+    def __init__(self) -> None:
+        self._store: Dict[str, tuple[str, float | None]] = {}
+        self._sets: Dict[str, set[str]] = {}
+
+    def _purge_if_expired(self, key: str) -> None:
+        value = self._store.get(key)
+        if not value:
+            return
+        _, expires_at = value
+        if expires_at is not None and expires_at < time.time():
+            self._store.pop(key, None)
+
+    def setex(self, key: str, ttl: int, value: str) -> bool:
+        self._store[key] = (value, time.time() + ttl)
+        return True
+
+    def set(self, key: str, value: str, ex: int | None = None) -> bool:
+        expires_at = time.time() + ex if ex else None
+        self._store[key] = (value, expires_at)
+        return True
+
+    def get(self, key: str) -> str | None:
+        self._purge_if_expired(key)
+        entry = self._store.get(key)
+        if not entry:
+            return None
+        return entry[0]
+
+    def delete(self, key: str) -> int:
+        existed = key in self._store
+        self._store.pop(key, None)
+        return int(existed)
+
+    def sadd(self, key: str, member: int) -> int:
+        members = self._sets.setdefault(key, set())
+        before = len(members)
+        members.add(str(member))
+        return int(len(members) > before)
+
+    def smembers(self, key: str) -> set[str]:
+        return set(self._sets.get(key, set()))
+
+    def srem(self, key: str, member: int) -> int:
+        members = self._sets.get(key)
+        if not members:
+            return 0
+        removed = str(member) in members
+        members.discard(str(member))
+        if not members:
+            self._sets.pop(key, None)
+        return int(removed)
+
+    def ping(self) -> bool:
+        return True
+
+    def pipeline(self):  # pragma: no cover - совместимость с redis
+        return self
+
+    def execute(self):  # pragma: no cover
+        return True
+
+
+class SafeRedis:
+    """Обёртка, которая прозрачно переключается на in-memory при ошибках."""
+
+    def __init__(self, client: "redis.Redis | None") -> None:
+        self._client = client
+        self._memory = InMemoryRedis()
+
+    @property
+    def is_real(self) -> bool:
+        return self._client is not None
+
+    @property
+    def client(self) -> "redis.Redis | None":
+        return self._client
+
+    @client.setter
+    def client(self, value: "redis.Redis | None") -> None:
+        self._client = value
+
+    def _execute(self, command: str, *args, **kwargs):
+        global _last_status_ok
+        if self._client is not None:
+            try:
+                method = getattr(self._client, command)
+                return method(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - хотим поймать любые сбои клиента
+                _last_status_ok = False
+                notify_owner(f"Redis command '{command}' failed: {exc}")
+                self._client = None
+        memory_method = getattr(self._memory, command)
+        return memory_method(*args, **kwargs)
+
+    def setex(self, *args, **kwargs):
+        return self._execute("setex", *args, **kwargs)
+
+    def set(self, *args, **kwargs):
+        return self._execute("set", *args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        return self._execute("get", *args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        return self._execute("delete", *args, **kwargs)
+
+    def sadd(self, *args, **kwargs):
+        return self._execute("sadd", *args, **kwargs)
+
+    def smembers(self, *args, **kwargs):
+        return self._execute("smembers", *args, **kwargs)
+
+    def srem(self, *args, **kwargs):
+        return self._execute("srem", *args, **kwargs)
+
+    def ping(self, *args, **kwargs):
+        return self._execute("ping", *args, **kwargs)
+
+    def pipeline(self, *args, **kwargs):  # pragma: no cover - совместимость
+        return self._execute("pipeline", *args, **kwargs)
+
+    def execute(self, *args, **kwargs):  # pragma: no cover
+        return self._execute("execute", *args, **kwargs)
+
+
+r = SafeRedis(_create_redis_client())
 
 # Имя файла базы (создастся автоматически при первом запуске)
 DB_PATH = "users.db"
 
-# --- Redis storage for chat history -------------------------------------------------
-
-_REDIS_TTL = 60 * 60 * 24 * 7  # 7 дней
-_REDIS_CHAT_SET_KEY = "chat:ids"
-
-_redis_client: "redis.Redis | None"
-if redis is None:
-    _redis_client = None
-else:
-    try:
-        _redis_client = redis.Redis(
-            host="localhost",
-            port=6379,
-            db=0,
-            decode_responses=True,
-        )
-        _redis_client.ping()
-    except redis.RedisError:
-        _redis_client = None
-
 # Локальный fallback, если Redis недоступен (офлайн режим)
 _memory_history: Dict[int, List[Dict[str, Any]]] = {}
+
+def notify_owner(msg: str) -> None:
+    """Уведомить владельца о проблеме с Redis (не чаще одного раза в день)."""
+
+    global _last_alert_date
+    today = date.today()
+    if _last_alert_date == today:
+        return
+    try:
+        bot.send_message(OWNER_ID, f"⚠️ Redis alert: {msg}")
+        _last_alert_date = today
+    except Exception:  # pragma: no cover - в офлайн среде уведомление не доставится
+        pass
+
+
+def notify_restored() -> None:
+    """Уведомить владельца, что Redis снова доступен."""
+
+    global _last_alert_date
+    try:
+        bot.send_message(OWNER_ID, "✅ Redis restored and working fine again")
+        _last_alert_date = None
+    except Exception:  # pragma: no cover - офлайн среда
+        pass
+
+
+def redis_health_check() -> None:
+    """Фоновая проверка доступности Redis и попытка переподключения."""
+
+    global _last_status_ok
+    while True:
+        if redis is None:
+            time.sleep(86400)
+            continue
+
+        if not r.is_real:
+            client = _create_redis_client()
+            if client is None:
+                _last_status_ok = False
+                notify_owner("Redis reconnect attempt failed")
+                time.sleep(86400)
+                continue
+            r.client = client
+
+        try:
+            pong = r.ping()
+        except Exception as exc:  # noqa: BLE001
+            _last_status_ok = False
+            notify_owner(f"Redis health-check failed: {exc}")
+            r.client = None
+            time.sleep(86400)
+            continue
+
+        if pong:
+            if not _last_status_ok:
+                notify_restored()
+            _last_status_ok = True
+        else:
+            _last_status_ok = False
+            notify_owner("Redis ping failed (no PONG)")
+            r.client = None
+
+        time.sleep(86400)
+
+
+threading.Thread(target=redis_health_check, daemon=True).start()
 
 
 def _chat_key(chat_id: int) -> str:
@@ -45,34 +241,30 @@ def save_history(chat_id: int, messages: List[Dict[str, Any]]) -> None:
 
     serialized = json.dumps(messages, ensure_ascii=False)
 
-    if _redis_client is not None:
-        try:
-            pipeline = _redis_client.pipeline()
-            pipeline.setex(_chat_key(chat_id), _REDIS_TTL, serialized)
-            pipeline.sadd(_REDIS_CHAT_SET_KEY, chat_id)
-            pipeline.execute()
-            return
-        except redis.RedisError:
-            pass
+    try:
+        r.setex(_chat_key(chat_id), TTL, serialized)
+        r.sadd(_REDIS_CHAT_SET_KEY, chat_id)
+    except Exception:  # pragma: no cover - fallback на память
+        notify_owner("save_history failed (unexpected error)")
 
-    # Fallback: храним историю локально в памяти
+    # Храним локально, чтобы не потерять при офлайн-режиме
     _memory_history[chat_id] = json.loads(serialized)
 
 
 def load_history(chat_id: int) -> List[Dict[str, Any]]:
     """Загрузить историю диалога."""
 
-    if _redis_client is not None:
+    data = None
+    try:
+        data = r.get(_chat_key(chat_id))
+    except Exception:  # pragma: no cover
+        notify_owner("load_history failed (unexpected error)")
+
+    if data:
         try:
-            data = _redis_client.get(_chat_key(chat_id))
-        except redis.RedisError:
-            data = None
-        if data:
-            try:
-                return json.loads(data)
-            except json.JSONDecodeError:
-                # повреждённые данные очищаем
-                clear_history(chat_id)
+            return json.loads(data)
+        except json.JSONDecodeError:
+            clear_history(chat_id)
 
     history = _memory_history.get(chat_id, [])
     # Возвращаем копию, чтобы не модифицировать оригинал
@@ -82,12 +274,11 @@ def load_history(chat_id: int) -> List[Dict[str, Any]]:
 def clear_history(chat_id: int) -> None:
     """Удалить историю вручную."""
 
-    if _redis_client is not None:
-        try:
-            _redis_client.delete(_chat_key(chat_id))
-            _redis_client.srem(_REDIS_CHAT_SET_KEY, chat_id)
-        except redis.RedisError:
-            pass
+    try:
+        r.delete(_chat_key(chat_id))
+        r.srem(_REDIS_CHAT_SET_KEY, chat_id)
+    except Exception:  # pragma: no cover
+        notify_owner("clear_history failed (unexpected error)")
 
     _memory_history.pop(chat_id, None)
 
@@ -95,13 +286,13 @@ def clear_history(chat_id: int) -> None:
 def iter_history_chat_ids() -> List[int]:
     """Вернуть список chat_id, у которых есть сохранённая история."""
 
-    if _redis_client is not None:
-        try:
-            members = _redis_client.smembers(_REDIS_CHAT_SET_KEY)
-            return [int(member) for member in members]
-        except redis.RedisError:
-            pass
-    return list(_memory_history.keys())
+    chat_ids = set(_memory_history.keys())
+    try:
+        members = r.smembers(_REDIS_CHAT_SET_KEY)
+        chat_ids.update(int(member) for member in members)
+    except Exception:  # pragma: no cover
+        notify_owner("iter_history_chat_ids failed (unexpected error)")
+    return list(chat_ids)
 
 # --- Инициализация базы ---
 def init_db():
