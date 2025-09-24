@@ -34,7 +34,7 @@ class InMemoryRedis:
 
     def __init__(self) -> None:
         self._store: Dict[str, tuple[str, float | None]] = {}
-        self._sets: Dict[str, set[str]] = {}
+        self._sets: Dict[str, Set[str]] = {}
 
     def _purge_if_expired(self, key: str) -> None:
         value = self._store.get(key)
