@@ -3,7 +3,7 @@ import sqlite3
 import threading
 import time
 from datetime import date
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 try:
     import redis  # type: ignore
@@ -71,7 +71,7 @@ class InMemoryRedis:
         members.add(str(member))
         return int(len(members) > before)
 
-    def smembers(self, key: str) -> set[str]:
+    def smembers(self, key: str) -> Set[str]:
         return set(self._sets.get(key, set()))
 
     def srem(self, key: str, member: int) -> int:
