@@ -13,6 +13,8 @@ from storage import (
     save_history,
     clear_history,
     iter_history_chat_ids,
+    r,
+    TTL,
 )
 from telebot import types
 
@@ -76,6 +78,9 @@ user_messages = {}  # {chat_id: [message_id, ...]}
 user_test_modes = {}  # {chat_id: {"short_friend": 0, "philosopher": 0, "academic": 0}}
 # активный тестовый режим
 active_test_modes = {}  # {chat_id: mode_key}
+
+# кеш выбранного языка (для офлайн-режима, если Redis недоступен)
+_language_cache: dict[int, str] = {}
 
 # --- Подтверждение подписки ---
 verified_users: Set[int] = set()
@@ -263,6 +268,7 @@ def send_welcome_menu(chat_id: int) -> None:
 def main_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=4)
     kb.add("Чек-ин", "Стата", "Оплата", "Медиа")
+    kb.add("Очистить", "Lang 🌐")
     return kb
 
 
@@ -273,6 +279,31 @@ def pay_menu():
     kb.add("Путешествие • истории и фоны — 1999 ₽")
     kb.add("⬅️ Назад")
     return kb
+
+# --- Работа с языком ---
+
+
+def set_language(chat_id: int, lang: str) -> None:
+    try:
+        r.set(f"lang:{chat_id}", lang, ex=TTL)
+    except Exception:
+        pass
+    _language_cache[chat_id] = lang
+
+
+def get_language(chat_id: int) -> str:
+    try:
+        lang = r.get(f"lang:{chat_id}")
+    except Exception:
+        lang = None
+
+    if lang:
+        if isinstance(lang, bytes):
+            lang = lang.decode("utf-8")
+        _language_cache[chat_id] = str(lang)
+        return str(lang)
+
+    return _language_cache.get(chat_id, "ru")
 
 # --- Проверка лимита ---
 
@@ -363,7 +394,13 @@ def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> 
         history = history[-HISTORY_LIMIT:]
         user_histories[chat_id] = history
 
-        system_prompt = MODES[mode_key]["system_prompt"]
+        lang = get_language(chat_id)
+
+        system_prompt = f"{SYSTEM_PROMPT}\n\n{MODES[mode_key]['system_prompt']}"
+        if lang == "en":
+            system_prompt += " Please respond in English."
+        elif lang == "zh":
+            system_prompt += " 请用中文回答."
 
         messages = [{"role": "system", "content": system_prompt}] + history
 
@@ -437,6 +474,47 @@ def mood_save(m):
     increment_counter(m.chat.id)
     user_moods.setdefault(m.chat.id, []).append(m.text)
     send_and_store(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
+
+
+@bot.message_handler(func=lambda msg: msg.text == "Очистить")
+def cmd_clear(msg):
+    if not ensure_verified(msg.chat.id, msg.from_user.id, force_check=True):
+        return
+
+    clear_history(msg.chat.id)
+    user_histories.pop(msg.chat.id, None)
+    user_messages.pop(msg.chat.id, None)
+    active_test_modes.pop(msg.chat.id, None)
+
+    send_and_store(msg.chat.id, "🧹 История диалога очищена", reply_markup=main_menu())
+
+
+@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("Lang"))
+def cmd_language(msg):
+    if not ensure_verified(msg.chat.id, msg.from_user.id, force_check=True):
+        return
+
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Русский 🇷🇺", callback_data="lang_ru"))
+    kb.add(types.InlineKeyboardButton("English 🇬🇧", callback_data="lang_en"))
+    kb.add(types.InlineKeyboardButton("中文 🇨🇳", callback_data="lang_zh"))
+
+    bot.send_message(msg.chat.id, "🌐 Choose your language:", reply_markup=kb)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
+def on_language_change(call):
+    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
+        bot.answer_callback_query(call.id, "❌ Требуется подписка")
+        return
+
+    lang = call.data.split("_", 1)[1]
+    set_language(call.message.chat.id, lang)
+
+    names = {"ru": "Русский 🇷🇺", "en": "English 🇬🇧", "zh": "中文 🇨🇳"}
+    chosen = names.get(lang, lang)
+    bot.answer_callback_query(call.id, f"Language set: {chosen}")
+    send_and_store(call.message.chat.id, f"✅ Now I will talk in {chosen}", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text == "Стата")
 def stats(m):
