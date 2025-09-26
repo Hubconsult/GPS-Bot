@@ -2,6 +2,8 @@
 from tariffs import TARIFFS
 from telebot import types
 
+from settings import bot
+
 
 def offer_renew(bot, chat_id, tariff_key=None):
     text = (
@@ -17,3 +19,11 @@ def offer_renew(bot, chat_id, tariff_key=None):
             )
         )
     bot.send_message(chat_id, text, reply_markup=kb)
+
+
+def show_typing(chat_id: int) -> None:
+    """Показывает пользователю статус «печатает…» в чате Telegram."""
+    try:
+        bot.send_chat_action(chat_id, "typing")
+    except Exception:
+        pass
