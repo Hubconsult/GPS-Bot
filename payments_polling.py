@@ -45,36 +45,42 @@ def add_payment(chat_id: int, tariff_key: str, payment_id: str) -> None:
     conn.close()
 
 
-def check_payments_loop() -> None:
+def _fetch_waiting_payments() -> list[tuple[int, int, str, str]]:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, chat_id, tariff_key, payment_id FROM pending_payments WHERE status='waiting'"
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def _mark_payment_activated(row_id: int) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE pending_payments SET status='activated' WHERE id=?", (row_id,))
+    conn.commit()
+    conn.close()
+
+
+def check_payments(bot_instance=bot) -> None:
+    """Проверить ожидающие платежи и активировать тарифы."""
+    for row_id, chat_id, tariff_key, payment_id in _fetch_waiting_payments():
+        try:
+            payment = Payment.find_one(payment_id)
+            if payment.status == "succeeded":
+                _reward, message = activate_tariff(chat_id, tariff_key)
+                bot_instance.send_message(chat_id, message)
+                _mark_payment_activated(row_id)
+        except Exception as exc:  # noqa: BLE001
+            print("Ошибка при проверке платежа:", exc)
+
+
+def check_payments_loop(bot_instance=bot) -> None:
     while True:
         try:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute(
-                "SELECT id, chat_id, tariff_key, payment_id FROM pending_payments WHERE status='waiting'"
-            )
-            rows = c.fetchall()
-            conn.close()
-
-            for row_id, chat_id, tariff_key, payment_id in rows:
-                try:
-                    payment = Payment.find_one(payment_id)
-                    if payment.status == "succeeded":
-                        # Активируем тариф
-                        _reward, message = activate_tariff(chat_id, tariff_key)
-                        bot.send_message(chat_id, message)
-
-                        # Обновляем статус
-                        conn = sqlite3.connect(DB_PATH)
-                        c = conn.cursor()
-                        c.execute(
-                            "UPDATE pending_payments SET status='activated' WHERE id=?",
-                            (row_id,),
-                        )
-                        conn.commit()
-                        conn.close()
-                except Exception as exc:  # noqa: BLE001
-                    print("Ошибка при проверке платежа:", exc)
+            check_payments(bot_instance)
         except Exception as exc:  # noqa: BLE001
             print("Ошибка в цикле проверки платежей:", exc)
 

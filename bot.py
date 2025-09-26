@@ -1,7 +1,7 @@
-import re
 import threading
 import time
 import datetime
+from contextlib import suppress
 from pathlib import Path
 from typing import Set
 
@@ -27,13 +27,14 @@ from tariffs import (
     check_expiring_tariffs,
     start_payment,
 )
-from payments_polling import start_payments_checker
 from hints import get_hint
 from info import get_info_text, info_keyboard
 
 # Ensure media handlers are registered
 import media
 from media import multimedia_menu
+
+from bot_utils import show_typing
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -80,6 +81,10 @@ user_test_mode_usage = {}  # {chat_id: {"short_friend": int, "philosopher": int,
 
 # кеш выбранного языка (для офлайн-режима, если Redis недоступен)
 _language_cache: dict[int, str] = {}
+
+# --- Потоковая генерация ---
+EDIT_INTERVAL = 0.18  # задержка между редактированиями, чтобы не ловить flood control
+FIRST_CHUNK_TOKENS = 20  # сколько токенов показываем сразу
 
 # --- Подтверждение подписки ---
 verified_users: Set[int] = set()
@@ -339,13 +344,6 @@ def get_user_mode(chat_id: int) -> str:
         return "short_friend"
     return TARIFF_MODES.get(info["tariff"], "short_friend")
 
-# --- Обрезаем ответ GPT до 2 предложений ---
-
-def force_short_reply(text: str) -> str:
-    sentences = re.split(r'(?<=[.?!])\s+', text)
-    return " ".join(sentences[:2]).strip()
-
-
 # --- Режимы общения ---
 
 MODES = {
@@ -392,39 +390,77 @@ TEST_BUTTON_CONFIG = {
     "Академик": ("🧭", "academic"),
 }
 
-# --- GPT-5 Mini ответ с историей ---
+# --- GPT-5 Mini ответ с потоковой выдачей ---
 
-def gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> str:
+def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> str:
+    history = load_history(chat_id)
+    history.append({"role": "user", "content": user_text})
+    history = history[-HISTORY_LIMIT:]
+    user_histories[chat_id] = history
+
+    lang = get_language(chat_id)
+
+    system_prompt = f"{SYSTEM_PROMPT}\n\n{MODES[mode_key]['system_prompt']}"
+    if lang == "en":
+        system_prompt += " Please respond in English."
+    elif lang == "zh":
+        system_prompt += " 请用中文回答."
+
+    messages = [{"role": "system", "content": system_prompt}] + history
+
+    show_typing(chat_id)
+    draft = send_and_store(chat_id, "…", reply_markup=main_menu())
+    msg_id = draft.message_id
+
+    accum: list[str] = []
+    last_edit = time.monotonic()
+    last_typing = time.monotonic()
+    tokens_seen = 0
+
     try:
-        history = load_history(chat_id)
-        history.append({"role": "user", "content": user_text})
-        history = history[-HISTORY_LIMIT:]
-        user_histories[chat_id] = history
-
-        lang = get_language(chat_id)
-
-        system_prompt = f"{SYSTEM_PROMPT}\n\n{MODES[mode_key]['system_prompt']}"
-        if lang == "en":
-            system_prompt += " Please respond in English."
-        elif lang == "zh":
-            system_prompt += " 请用中文回答."
-
-        messages = [{"role": "system", "content": system_prompt}] + history
-
-        response = client.chat.completions.create(
+        stream = client.chat.completions.create(
             model="gpt-5-mini",
             messages=messages,
+            stream=True,
+            max_tokens=160,
+            temperature=0.7,
         )
 
-        reply = response.choices[0].message.content.strip()
-        history.append({"role": "assistant", "content": reply})
-        history = history[-HISTORY_LIMIT:]
-        save_history(chat_id, history)
-        user_histories[chat_id] = history
+        for chunk in stream:
+            delta = getattr(chunk.choices[0].delta, "content", None)
+            if not delta:
+                continue
 
-        return reply
-    except Exception as e:
-        return f"⚠️ Ошибка при обращении к GPT: {e}"
+            accum.append(delta)
+            tokens_seen += 1
+
+            now = time.monotonic()
+            if now - last_typing > 3:
+                show_typing(chat_id)
+                last_typing = now
+
+            if tokens_seen < FIRST_CHUNK_TOKENS or (now - last_edit) >= EDIT_INTERVAL:
+                with suppress(Exception):
+                    bot.edit_message_text("".join(accum), chat_id, msg_id, parse_mode="HTML")
+                last_edit = now
+
+        final_text = "".join(accum).strip()
+
+        with suppress(Exception):
+            bot.edit_message_text(final_text or " ", chat_id, msg_id, parse_mode="HTML")
+
+        if final_text:
+            history.append({"role": "assistant", "content": final_text})
+            history = history[-HISTORY_LIMIT:]
+            save_history(chat_id, history)
+            user_histories[chat_id] = history
+
+        return final_text
+    except Exception as exc:  # noqa: BLE001
+        error_text = f"⚠️ Ошибка при обращении к GPT: {exc}"
+        with suppress(Exception):
+            bot.edit_message_text(error_text, chat_id, msg_id)
+        return error_text
 
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
@@ -785,22 +821,24 @@ def fallback(m):
     mode_key = user_test_modes.get(m.chat.id)
     if mode_key and mode_key in user_test_mode_usage.get(m.chat.id, {}):
         if user_test_mode_usage[m.chat.id][mode_key] < 2:
-            answer = gpt_answer(m.chat.id, m.text, mode_key)
+            stream_gpt_answer(m.chat.id, m.text, mode_key)
             user_test_mode_usage[m.chat.id][mode_key] += 1
             if user_test_mode_usage[m.chat.id][mode_key] >= 2:
                 user_test_modes.pop(m.chat.id, None)
-            send_and_store(m.chat.id, answer, reply_markup=main_menu())
             return
         else:
             user_test_modes.pop(m.chat.id, None)
 
     mode = get_user_mode(m.chat.id)
-    answer = gpt_answer(m.chat.id, m.text, mode)
-    send_and_store(m.chat.id, answer, reply_markup=main_menu())
+    stream_gpt_answer(m.chat.id, m.text, mode)
 
 # --- Запуск ---
 if __name__ == "__main__":
-    start_payments_checker()  # запуск фоновой проверки оплат
+    from worker_media import start_media_worker
+    from worker_payments import start_payments_worker
+
+    start_media_worker()
+    start_payments_worker()
     threading.Thread(target=background_checker, daemon=True).start()
     bot.infinity_polling(skip_pending=True)
 
