@@ -3,14 +3,12 @@ import time
 import datetime
 from contextlib import suppress
 from pathlib import Path
-from typing import Optional, Set
+from typing import Set
 
 from storage import (
     init_db,
     get_user_usage,
     increment_used,
-    load_history,
-    save_history,
     clear_history,
     iter_history_chat_ids,
     r,
@@ -41,7 +39,6 @@ from settings import (
     bot,
     client,
     FREE_LIMIT,
-    HISTORY_LIMIT,
     is_owner,
     PAY_URL_HARMONY,
     PAY_URL_REFLECTION,
@@ -394,32 +391,25 @@ TEST_BUTTON_CONFIG = {
 # --- GPT-5 Mini ответ с потоковой выдачей ---
 
 
-def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> Optional[str]:
-    """Стрим GPT-ответа с watchdog, чтобы избегать зависаний."""
-
-    history = load_history(chat_id)
+def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> None:
+    """
+    Стриминговая генерация с watchdog и корректной обработкой ошибки 'max_tokens' -> используем
+    'max_completion_tokens'. Также гарантированно отправляем финальный текст или сообщение об ошибке.
+    """
+    history = user_histories.get(chat_id, [])
     history.append({"role": "user", "content": user_text})
-    history = history[-HISTORY_LIMIT:]
-    user_histories[chat_id] = history
-
-    lang = get_language(chat_id)
-
-    system_prompt = f"{SYSTEM_PROMPT}\n\n{MODES[mode_key]['system_prompt']}"
-    if lang == "en":
-        system_prompt += " Please respond in English."
-    elif lang == "zh":
-        system_prompt += " 请用中文回答."
-
     short_history = history[-6:]
+    system_prompt = MODES[mode_key]["system_prompt"]
     messages = [{"role": "system", "content": system_prompt}] + short_history
 
+    # показываем "печатает..." и создаём черновик
     show_typing(chat_id)
-    draft = send_and_store(chat_id, "…", reply_markup=main_menu())
+    draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
     msg_id = draft.message_id
 
-    accum: list[str] = []
+    accum = []
     last_edit = time.monotonic()
-    last_chunk_time = last_edit
+    last_chunk_time = time.monotonic()
     tokens_seen = 0
 
     try:
@@ -427,11 +417,13 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
             model="gpt-5-mini",
             messages=messages,
             stream=True,
-            max_tokens=200,
+            # ВАЖНО: для этой модели используем max_completion_tokens
+            max_completion_tokens=200,
             temperature=0.7,
         )
 
         for chunk in stream:
+            # безопасно извлекаем дельту
             delta = getattr(chunk.choices[0].delta, "content", None)
             if delta:
                 accum.append(delta)
@@ -440,45 +432,49 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 
             now = time.monotonic()
 
+            # периодически продлеваем индикатор "печатает..."
             if now - last_edit > 3:
                 show_typing(chat_id)
 
+            # редактируем сообщение порционно, чтобы не попадать в flood
             if tokens_seen < FIRST_CHUNK_TOKENS or (now - last_edit) >= EDIT_INTERVAL:
-                with suppress(Exception):
+                try:
                     bot.edit_message_text("".join(accum) or "…", chat_id, msg_id, parse_mode="HTML")
+                except Exception:
+                    pass
                 last_edit = now
 
+            # watchdog — если стрим "замёрз"
             if now - last_chunk_time > STREAM_STALL_TIMEOUT:
-                with suppress(Exception):
-                    bot.edit_message_text(
-                        "⚠️ Время ожидания ответа exceeded. Попробуйте ещё раз.",
-                        chat_id,
-                        msg_id,
-                    )
-                return "⚠️ Время ожидания ответа exceeded. Попробуйте ещё раз."
+                try:
+                    bot.edit_message_text("⚠️ Время ожидания ответа превышено. Попробуйте ещё раз.", chat_id, msg_id)
+                except Exception:
+                    pass
+                return
 
+        # финальное обновление (обязательно)
         final_text = "".join(accum).strip()
         if not final_text:
-            final_text = "⚠️ Ответ пустой. Попробуйте ещё раз."
-
-        with suppress(Exception):
+            final_text = "⚠️ Ответ пустой. Попробуйте повторить запрос."
+        try:
             bot.edit_message_text(final_text, chat_id, msg_id, parse_mode="HTML")
+        except Exception:
+            # если редактирование упало — отправим новое сообщение
+            with suppress(Exception):
+                bot.send_message(chat_id, final_text, parse_mode="HTML")
 
-        history.append({"role": "assistant", "content": final_text})
-        history = history[-HISTORY_LIMIT:]
-        save_history(chat_id, history)
-        user_histories[chat_id] = history
+        # сохраняем короткую историю
+        short_history.append({"role": "assistant", "content": final_text})
+        user_histories[chat_id] = short_history[-6:]
 
-        return final_text
-    except Exception as exc:  # noqa: BLE001
-        print(f"[stream_gpt_answer] Exception: {exc}")
-        with suppress(Exception):
-            bot.edit_message_text(
-                "⚠️ Ошибка генерации ответа. Попробуйте снова через пару секунд.",
-                chat_id,
-                msg_id,
-            )
-        return "⚠️ Ошибка генерации ответа. Попробуйте снова через пару секунд."
+    except Exception as e:
+        # логируем для systemd/journalctl и сообщаем пользователю
+        print(f"[stream_gpt_answer] Exception: {e}")
+        try:
+            bot.edit_message_text("⚠️ Ошибка при генерации ответа. Попробуйте ещё раз.", chat_id, msg_id)
+        except Exception:
+            with suppress(Exception):
+                bot.send_message(chat_id, "⚠️ Ошибка при генерации ответа. Попробуйте ещё раз.", parse_mode="HTML")
 
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
