@@ -2,6 +2,7 @@ import threading
 import time
 import logging
 import datetime
+import re
 from threading import Lock
 from contextlib import suppress
 from pathlib import Path
@@ -433,14 +434,26 @@ fh = logging.FileHandler("/root/GPS-Bot/logs/stream_gpt.log")
 fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 _logger.addHandler(fh)
 
+_RE_RESPONSE_REPR = re.compile(r"Response\w+Item\([^)]*\)")
+
+
+def sanitize_model_output(text):
+    """Remove service objects that may leak from the SDK before sending to users."""
+
+    if not isinstance(text, str):
+        return "" if text is None else str(text)
+
+    return _RE_RESPONSE_REPR.sub("", text).strip()
+
 
 def _sanitize_for_telegram(text: str) -> str:
     """Удаляет скрытые блоки (<think>) и экранирует HTML, чтобы Telegram не падал."""
 
-    if not text:
+    sanitized = sanitize_model_output(text)
+    if not sanitized:
         return ""
 
-    cleaned = text.replace("<think>", "").replace("</think>", "")
+    cleaned = sanitized.replace("<think>", "").replace("</think>", "")
     # Иногда reasoning блоки приходят в виде тэгов <reasoning></reasoning>
     cleaned = cleaned.replace("<reasoning>", "").replace("</reasoning>", "")
     # Удаляем нулевые символы, которые Telegram не любит
@@ -560,7 +573,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                 max_tokens=800,
                 stream=False,
             )
-            final_text = (final_text or "").strip()
+            final_text = sanitize_model_output((final_text or "").strip())
             if not final_text:
                 dumped = dump_response_for_log(raw_response)
                 _logger.warning("Empty completion text", extra={"response": dumped})

@@ -3,11 +3,37 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Sequence, Tuple
 
+_SUPPRESSED_CONTENT_TYPES = {
+    "reasoning",
+    "annotation",
+    "annotations",
+    "refusal",
+    "safety",
+}
+
+
+def _detect_content_type(value: Any) -> str:
+    """Return a lower-cased content type if present on the object or mapping."""
+
+    type_attr = getattr(value, "type", None)
+    if isinstance(type_attr, str):
+        return type_attr.lower()
+
+    if isinstance(value, dict):
+        type_value = value.get("type")
+        if isinstance(type_value, str):
+            return type_value.lower()
+
+    return ""
+
 
 def coerce_content_to_text(content: Any) -> str:
     """Coerce the various SDK content containers to plain text."""
 
     if content is None:
+        return ""
+
+    if _detect_content_type(content) in _SUPPRESSED_CONTENT_TYPES:
         return ""
 
     if isinstance(content, str):
@@ -24,6 +50,8 @@ def coerce_content_to_text(content: Any) -> str:
         return "".join(parts)
 
     if isinstance(content, dict):
+        if _detect_content_type(content) in _SUPPRESSED_CONTENT_TYPES:
+            return ""
         if isinstance(content.get("text"), str):
             return content.get("text", "")
         if isinstance(content.get("output_text"), str):
