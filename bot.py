@@ -467,8 +467,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                     messages=messages,
                     stream=True,
                     # для текущей модели используется max_completion_tokens
-                    max_completion_tokens=220,
-                    temperature=0.7,
+                    max_completion_tokens=220
                 )
 
                 # основной цикл по приходящим чанкам
@@ -533,8 +532,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                         model="gpt-5-mini",
                         messages=messages,
                         stream=False,
-                        max_completion_tokens=220,
-                        temperature=0.7,
+                        max_completion_tokens=220
                     )
                     # попытка унифицировать доступ к тексту
                     content = None
