@@ -479,143 +479,55 @@ def _safe_get_delta_content(chunk) -> str | None:
 
 def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> None:
     """
-    Устойчивый стрим: блокировка по чату, retries, watchdog, fallback на non-stream.
-    Гарантирует, что пользователь НЕ останется навсегда с "…".
+    Отправляет запрос в GPT-5 mini без стриминга и сразу возвращает полный ответ.
+    В случае ошибки возвращает сообщение об ошибке, чтобы пользователь не оставался с «…».
     """
     lock = _get_chat_lock(chat_id)
     if not lock.acquire(blocking=False):
-        # если уже идёт ответ в этом чате — предупредим пользователя
         with suppress(Exception):
             bot.send_message(chat_id, "⚠️ Уже формируется ответ в этом чате. Подождите, пожалуйста.")
         return
 
     try:
+        # Добавляем новое сообщение пользователя в историю
         history = user_histories.get(chat_id, [])
         history.append({"role": "user", "content": user_text})
         short_history = history[-6:]
         system_prompt = MODES[mode_key]["system_prompt"]
         messages = [{"role": "system", "content": system_prompt}] + short_history
 
-        # показываем "печатает..." и создаём черновик
+        # Показываем «печатает..."
         show_typing(chat_id)
         draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
         msg_id = draft.message_id
 
-        accum = []
-        tokens_seen = 0
-        last_edit = time.monotonic()
-        last_chunk_time = time.monotonic()
+        # Синхронный (нестриминговый) запрос к GPT
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-5-mini",
+                messages=messages,
+                stream=False,
+                max_completion_tokens=800  # длинные ответы умещаются без обрезки
+            )
+            # Получаем текст ответа
+            content = getattr(resp.choices[0].message, "content", None)
+            final_text = (content or "").strip() or "⚠️ Ответ пуст."
+        except Exception as e:
+            _logger.exception("Non-stream call failed: %s", e)
+            final_text = "⚠️ Ошибка при генерации ответа. Попробуйте позже."
 
-        # попытаемся несколько раз стримить
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                _logger.info("Starting stream attempt %d for chat %s", attempt + 1, chat_id)
-                stream = client.chat.completions.create(
-                    model="gpt-5-mini",
-                    messages=messages,
-                    stream=True,
-                    # для текущей модели используется max_completion_tokens
-                    max_completion_tokens=800  # увеличили лимит токенов, чтобы помещались большие ответы
-                )
+        # Отправляем или редактируем сообщение
+        try:
+            bot.edit_message_text(final_text, chat_id, msg_id, parse_mode="HTML")
+        except Exception:
+            with suppress(Exception):
+                bot.send_message(chat_id, final_text, parse_mode="HTML")
 
-                # основной цикл по приходящим чанкам
-                for chunk in stream:
-                    delta = _safe_get_delta_content(chunk)
-                    if delta:
-                        accum.append(delta)
-                        tokens_seen += 1
-                        last_chunk_time = time.monotonic()
-
-                    now = time.monotonic()
-
-                    # продлеваем индикатор "печатает..." каждые ~3 сек
-                    if now - last_edit > 3:
-                        show_typing(chat_id)
-
-                    # редактируем сообщение порциями
-                    if tokens_seen < FIRST_CHUNK_TOKENS or (now - last_edit) >= EDIT_INTERVAL:
-                        try:
-                            bot.edit_message_text("".join(accum) or "…", chat_id, msg_id, parse_mode="HTML")
-                        except Exception as e_edit:
-                            _logger.warning("Edit failed (chat %s): %s", chat_id, e_edit)
-                        last_edit = now
-
-                    # watchdog - если стрим замёрз
-                    if now - last_chunk_time > STREAM_STALL_TIMEOUT:
-                        _logger.warning("Stream stall detected (chat %s) after %.1f sec", chat_id, now - last_chunk_time)
-                        raise TimeoutError("stream stalled")
-
-                # если цикл завершился корректно — финал
-                final_text = "".join(accum).strip()
-                if not final_text:
-                    final_text = "⚠️ Ответ пуст. Попробуйте ещё раз."
-
-                try:
-                    bot.edit_message_text(final_text, chat_id, msg_id, parse_mode="HTML")
-                except Exception:
-                    with suppress(Exception):
-                        bot.send_message(chat_id, final_text, parse_mode="HTML")
-
-                # сохранить в историю
-                short_history.append({"role": "assistant", "content": final_text})
-                user_histories[chat_id] = short_history[-6:]
-                _logger.info("Stream finished OK for chat %s", chat_id)
-                return  # успешно — выходим из функции
-
-            except Exception as e_stream:
-                _logger.exception("Stream attempt %d failed for chat %s: %s", attempt + 1, chat_id, e_stream)
-
-                # если остались попытки — подождём backoff и повторим
-                if attempt < MAX_RETRIES:
-                    backoff = BACKOFF_BASE * (2 ** attempt)
-                    _logger.info("Backoff %.1fs before retry for chat %s", backoff, chat_id)
-                    time.sleep(backoff)
-                    # продолжим внешним for -> новая попытка
-                    continue
-
-                # если все попытки провалились — делаем фоллбек: синхронный (non-stream) вызов
-                _logger.info("All stream attempts failed for chat %s — trying non-stream fallback", chat_id)
-                try:
-                    resp = client.chat.completions.create(
-                        model="gpt-5-mini",
-                        messages=messages,
-                        stream=False,
-                        max_completion_tokens=800  # тот же лимит, что и в потоковом варианте
-                    )
-                    # попытка унифицировать доступ к тексту
-                    content = _safe_get_delta_content(resp)
-                    if not content:
-                        # new SDK: resp.choices[0].message.content
-                        try:
-                            content = getattr(resp.choices[0].message, "content", None)
-                        except Exception:
-                            # fallback dict-like
-                            try:
-                                content = resp.choices[0].message["content"]
-                            except Exception:
-                                content = None
-
-                    final_text = (content or "").strip() or "⚠️ Ответ пуст в фоллбеке."
-                    try:
-                        bot.edit_message_text(final_text, chat_id, msg_id, parse_mode="HTML")
-                    except Exception:
-                        with suppress(Exception):
-                            bot.send_message(chat_id, final_text, parse_mode="HTML")
-
-                    short_history.append({"role": "assistant", "content": final_text})
-                    user_histories[chat_id] = short_history[-6:]
-                    _logger.info("Fallback (non-stream) succeeded for chat %s", chat_id)
-                    return
-
-                except Exception as e_fallback:
-                    _logger.exception("Fallback non-stream also failed for chat %s: %s", chat_id, e_fallback)
-                    # отправляем окончательное сообщение об ошибке
-                    with suppress(Exception):
-                        bot.edit_message_text("⚠️ Ошибка при генерации ответа. Попробуйте позже.", chat_id, msg_id)
-                    return
+        # Сохраняем ответ в историю
+        short_history.append({"role": "assistant", "content": final_text})
+        user_histories[chat_id] = short_history[-6:]
 
     finally:
-        # разблокируем чат
         with suppress(Exception):
             lock.release()
 
