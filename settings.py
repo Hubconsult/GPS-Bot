@@ -38,7 +38,7 @@ def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
 # Maximum number of conversation messages to retain per user
-HISTORY_LIMIT = 15
+HISTORY_LIMIT = 700  # Храним переписку за неделю (~100 сообщений в день × 7 дней)
 
 # System prompt for the GPT assistant
 SYSTEM_PROMPT = (

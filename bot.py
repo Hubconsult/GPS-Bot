@@ -42,6 +42,7 @@ from settings import (
     client,
     CHAT_MODEL,
     FREE_LIMIT,
+    HISTORY_LIMIT,
     is_owner,
     PAY_URL_HARMONY,
     PAY_URL_REFLECTION,
@@ -581,7 +582,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 
         # Сохраняем ответ в историю
         short_history.append({"role": "assistant", "content": final_text})
-        user_histories[chat_id] = short_history[-6:]
+        user_histories[chat_id] = short_history[-HISTORY_LIMIT:]
 
     finally:
         with suppress(Exception):
