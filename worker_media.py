@@ -73,3 +73,8 @@ def enqueue_media_task(chat_id: int, task_type: str, payload: Any) -> None:
 
 
 __all__ = ["enqueue_media_task", "start_media_worker", "media_worker"]
+
+
+if __name__ == "__main__":
+    queue = mp.Queue()
+    media_worker(queue)
