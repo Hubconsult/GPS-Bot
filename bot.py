@@ -35,6 +35,7 @@ import media
 from media import multimedia_menu
 
 from bot_utils import show_typing
+from telebot import util as telebot_util
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -428,10 +429,17 @@ def _coerce_content_to_text(content) -> str:
     if isinstance(content, dict):
         if isinstance(content.get("text"), str):
             return content.get("text", "")
+        # Некоторые структуры (reasoning, refusal) прячут текст глубже.
+        if isinstance(content.get("output_text"), str):
+            return content.get("output_text", "")
         if "content" in content:
             return _coerce_content_to_text(content["content"])
         if "value" in content:
             return _coerce_content_to_text(content["value"])
+        if "arguments" in content:
+            return _coerce_content_to_text(content["arguments"])
+        if "text" in content:
+            return _coerce_content_to_text(content.get("text"))
 
     return str(content)
 
@@ -448,8 +456,64 @@ def _extract_message_text(message) -> str:
     if text:
         return text
 
+    # Некоторые SDK используют .contents для списка частей
+    contents = getattr(message, "contents", None)
+    text = _coerce_content_to_text(contents)
+    if text:
+        return text
+
     # fallback: иногда текст может лежать в message.text
     return _coerce_content_to_text(getattr(message, "text", ""))
+
+
+def _extract_choice_text(choice) -> str:
+    """Пробует извлечь текст из объекта choice (для разных SDK)."""
+
+    if choice is None:
+        return ""
+
+    # 1) Объектный стиль
+    message = getattr(choice, "message", None)
+    text = _extract_message_text(message)
+    if text:
+        return text
+
+    # 2) Некоторые SDK кладут финальный текст в choice.content
+    content = getattr(choice, "content", None)
+    text = _coerce_content_to_text(content)
+    if text:
+        return text
+
+    # 3) dict-like структура
+    if isinstance(choice, dict):
+        if "message" in choice:
+            text = _extract_message_text(choice.get("message"))
+            if text:
+                return text
+        if "content" in choice:
+            text = _coerce_content_to_text(choice.get("content"))
+            if text:
+                return text
+        if "delta" in choice:
+            text = _coerce_content_to_text(choice.get("delta"))
+            if text:
+                return text
+
+    return ""
+
+
+def _sanitize_for_telegram(text: str) -> str:
+    """Удаляет скрытые блоки (<think>) и экранирует HTML, чтобы Telegram не падал."""
+
+    if not text:
+        return ""
+
+    cleaned = text.replace("<think>", "").replace("</think>", "")
+    # Иногда reasoning блоки приходят в виде тэгов <reasoning></reasoning>
+    cleaned = cleaned.replace("<reasoning>", "").replace("</reasoning>", "")
+    # Удаляем нулевые символы, которые Telegram не любит
+    cleaned = cleaned.replace("\x00", "")
+    return telebot_util.escape(cleaned)
 
 
 def _get_chat_lock(chat_id: int) -> Lock:
@@ -559,11 +623,16 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                 model=CHAT_MODEL,
                 messages=messages,
                 stream=False,
-                max_completion_tokens=800  # длинные ответы умещаются без обрезки
+                max_tokens=800  # длинные ответы умещаются без обрезки
             )
-            # Получаем текст ответа
-            final_text = _extract_message_text(resp.choices[0].message).strip()
+            # Получаем текст ответа, поддерживаем разные форматы SDK
+            final_text = _extract_choice_text(resp.choices[0]).strip()
             if not final_text:
+                try:
+                    dumped = resp.model_dump()
+                except Exception:  # noqa: BLE001 - на всякий случай
+                    dumped = str(resp)
+                _logger.warning("Empty completion text", extra={"response": dumped})
                 final_text = "⚠️ Ответ пуст."
         except Exception as e:
             import traceback
@@ -575,10 +644,12 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 
         # Отправляем или редактируем сообщение
         try:
-            bot.edit_message_text(final_text, chat_id, msg_id, parse_mode="HTML")
+            safe_text = _sanitize_for_telegram(final_text)
+            bot.edit_message_text(safe_text or final_text, chat_id, msg_id, parse_mode="HTML")
         except Exception:
             with suppress(Exception):
-                bot.send_message(chat_id, final_text, parse_mode="HTML")
+                safe_text = _sanitize_for_telegram(final_text)
+                bot.send_message(chat_id, safe_text or final_text, parse_mode="HTML")
 
         # Сохраняем ответ в историю
         short_history.append({"role": "assistant", "content": final_text})
