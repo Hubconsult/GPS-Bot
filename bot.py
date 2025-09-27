@@ -414,18 +414,66 @@ def _get_chat_lock(chat_id: int) -> Lock:
 
 
 def _safe_get_delta_content(chunk) -> str | None:
-    """Универсально извлекает delta content из chunk (защита от разных SDK форм)."""
+    """
+    Универсально извлекает текстовый фрагмент из stream-chunk.
+    Поддерживает:
+     - chunk.choices[0].delta.content (обычно для incremental stream)
+     - chunk.choices[0].message.content (иногда финальный текст приходит в message)
+     - dict-like структуры от разных SDK
+    Возвращает строку или None.
+    """
     try:
-        # new style: chunk.choices[0].delta.content
-        delta = getattr(chunk.choices[0].delta, "content", None)
-        if delta:
-            return delta
-        # fallback: dict-like
-        c = chunk.choices[0].delta
-        if isinstance(c, dict):
-            return c.get("content")
+        # 1) new style: chunk.choices[0].delta.content
+        delta = getattr(getattr(chunk, "choices", [None])[0], "delta", None)
+        if delta is not None:
+            # объектный интерфейс
+            content = getattr(delta, "content", None)
+            if content:
+                return content
+            # dict-like delta
+            if isinstance(delta, dict):
+                c = delta.get("content")
+                if c:
+                    return c
+
+        # 2) sometimes final message is in choices[0].message.content
+        choice0 = None
+        try:
+            choice0 = chunk.choices[0]
+        except Exception:
+            pass
+
+        if choice0 is not None:
+            # try object-style message
+            msg = getattr(choice0, "message", None)
+            if msg is not None:
+                content = getattr(msg, "content", None)
+                if content:
+                    return content
+                if isinstance(msg, dict):
+                    c = msg.get("content")
+                    if c:
+                        return c
+
+        # 3) dict-like root fallback: chunk["choices"][0]["message"]["content"] or delta
+        if isinstance(chunk, dict):
+            try:
+                ch0 = chunk.get("choices", [None])[0]
+                if ch0:
+                    # prefer delta.content
+                    d = ch0.get("delta")
+                    if isinstance(d, dict) and d.get("content"):
+                        return d.get("content")
+                    # then try message.content
+                    m = ch0.get("message")
+                    if isinstance(m, dict) and m.get("content"):
+                        return m.get("content")
+            except Exception:
+                pass
+
     except Exception:
         return None
+
     return None
 
 
@@ -535,16 +583,17 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                         max_completion_tokens=220
                     )
                     # попытка унифицировать доступ к тексту
-                    content = None
-                    # new SDK: resp.choices[0].message.content
-                    try:
-                        content = getattr(resp.choices[0].message, "content", None)
-                    except Exception:
-                        # fallback dict-like
+                    content = _safe_get_delta_content(resp)
+                    if not content:
+                        # new SDK: resp.choices[0].message.content
                         try:
-                            content = resp.choices[0].message["content"]
+                            content = getattr(resp.choices[0].message, "content", None)
                         except Exception:
-                            content = None
+                            # fallback dict-like
+                            try:
+                                content = resp.choices[0].message["content"]
+                            except Exception:
+                                content = None
 
                     final_text = (content or "").strip() or "⚠️ Ответ пуст в фоллбеке."
                     try:
