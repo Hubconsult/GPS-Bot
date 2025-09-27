@@ -36,6 +36,11 @@ from media import multimedia_menu
 
 from bot_utils import show_typing
 from telebot import util as telebot_util
+from openai_adapter import (
+    call_chat_completion,
+    coerce_content_to_text,
+    dump_response_for_log,
+)
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -407,101 +412,6 @@ fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 _logger.addHandler(fh)
 
 
-def _coerce_content_to_text(content) -> str:
-    """Приводит разные форматы контента OpenAI к строке."""
-
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-
-    # Новые SDK могут возвращать объекты с атрибутом text
-    text_attr = getattr(content, "text", None)
-    if isinstance(text_attr, str):
-        return text_attr
-    if text_attr is not None:
-        return _coerce_content_to_text(text_attr)
-
-    if isinstance(content, list):
-        parts = [_coerce_content_to_text(item) for item in content]
-        return "".join(parts)
-
-    if isinstance(content, dict):
-        if isinstance(content.get("text"), str):
-            return content.get("text", "")
-        # Некоторые структуры (reasoning, refusal) прячут текст глубже.
-        if isinstance(content.get("output_text"), str):
-            return content.get("output_text", "")
-        if "content" in content:
-            return _coerce_content_to_text(content["content"])
-        if "value" in content:
-            return _coerce_content_to_text(content["value"])
-        if "arguments" in content:
-            return _coerce_content_to_text(content["arguments"])
-        if "text" in content:
-            return _coerce_content_to_text(content.get("text"))
-
-    return str(content)
-
-
-def _extract_message_text(message) -> str:
-    if message is None:
-        return ""
-
-    if isinstance(message, dict):
-        return _coerce_content_to_text(message.get("content"))
-
-    content = getattr(message, "content", None)
-    text = _coerce_content_to_text(content)
-    if text:
-        return text
-
-    # Некоторые SDK используют .contents для списка частей
-    contents = getattr(message, "contents", None)
-    text = _coerce_content_to_text(contents)
-    if text:
-        return text
-
-    # fallback: иногда текст может лежать в message.text
-    return _coerce_content_to_text(getattr(message, "text", ""))
-
-
-def _extract_choice_text(choice) -> str:
-    """Пробует извлечь текст из объекта choice (для разных SDK)."""
-
-    if choice is None:
-        return ""
-
-    # 1) Объектный стиль
-    message = getattr(choice, "message", None)
-    text = _extract_message_text(message)
-    if text:
-        return text
-
-    # 2) Некоторые SDK кладут финальный текст в choice.content
-    content = getattr(choice, "content", None)
-    text = _coerce_content_to_text(content)
-    if text:
-        return text
-
-    # 3) dict-like структура
-    if isinstance(choice, dict):
-        if "message" in choice:
-            text = _extract_message_text(choice.get("message"))
-            if text:
-                return text
-        if "content" in choice:
-            text = _coerce_content_to_text(choice.get("content"))
-            if text:
-                return text
-        if "delta" in choice:
-            text = _coerce_content_to_text(choice.get("delta"))
-            if text:
-                return text
-
-    return ""
-
-
 def _sanitize_for_telegram(text: str) -> str:
     """Удаляет скрытые блоки (<think>) и экранирует HTML, чтобы Telegram не падал."""
 
@@ -539,12 +449,12 @@ def _safe_get_delta_content(chunk) -> str | None:
         delta = getattr(getattr(chunk, "choices", [None])[0], "delta", None)
         if delta is not None:
             # объектный интерфейс
-            content = _coerce_content_to_text(getattr(delta, "content", None))
+            content = coerce_content_to_text(getattr(delta, "content", None))
             if content:
                 return content
             # dict-like delta
             if isinstance(delta, dict):
-                c = _coerce_content_to_text(delta.get("content"))
+                c = coerce_content_to_text(delta.get("content"))
                 if c:
                     return c
 
@@ -559,11 +469,11 @@ def _safe_get_delta_content(chunk) -> str | None:
             # try object-style message
             msg = getattr(choice0, "message", None)
             if msg is not None:
-                content = _coerce_content_to_text(getattr(msg, "content", None))
+                content = coerce_content_to_text(getattr(msg, "content", None))
                 if content:
                     return content
                 if isinstance(msg, dict):
-                    c = _coerce_content_to_text(msg.get("content"))
+                    c = coerce_content_to_text(msg.get("content"))
                     if c:
                         return c
 
@@ -575,13 +485,13 @@ def _safe_get_delta_content(chunk) -> str | None:
                     # prefer delta.content
                     d = ch0.get("delta")
                     if isinstance(d, dict):
-                        c = _coerce_content_to_text(d.get("content"))
+                        c = coerce_content_to_text(d.get("content"))
                         if c:
                             return c
                     # then try message.content
                     m = ch0.get("message")
                     if isinstance(m, dict):
-                        c = _coerce_content_to_text(m.get("content"))
+                        c = coerce_content_to_text(m.get("content"))
                         if c:
                             return c
             except Exception:
@@ -619,19 +529,16 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 
         # Синхронный (нестриминговый) запрос к GPT
         try:
-            resp = client.chat.completions.create(
-                model=CHAT_MODEL,
-                messages=messages,
+            final_text, raw_response = call_chat_completion(
+                client,
+                CHAT_MODEL,
+                messages,
+                max_tokens=800,
                 stream=False,
-                max_tokens=800  # длинные ответы умещаются без обрезки
             )
-            # Получаем текст ответа, поддерживаем разные форматы SDK
-            final_text = _extract_choice_text(resp.choices[0]).strip()
+            final_text = (final_text or "").strip()
             if not final_text:
-                try:
-                    dumped = resp.model_dump()
-                except Exception:  # noqa: BLE001 - на всякий случай
-                    dumped = str(resp)
+                dumped = dump_response_for_log(raw_response)
                 _logger.warning("Empty completion text", extra={"response": dumped})
                 final_text = "⚠️ Ответ пуст."
         except Exception as e:
