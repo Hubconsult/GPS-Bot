@@ -389,8 +389,8 @@ TEST_BUTTON_CONFIG = {
 
 EDIT_INTERVAL = 0.4             # не слишком частые редактирования (сек)
 FIRST_CHUNK_TOKENS = 12         # показать быстро несколько токенов
-STREAM_STALL_TIMEOUT = 12.0     # если нет дельты > N сек — считаем что стрим "замёрз"
-MAX_RETRIES = 2                 # сколько попыток стрима перед фолбеком
+STREAM_STALL_TIMEOUT = 30.0     # увеличили с 12.0, даём стриму до 30 секунд тишины
+MAX_RETRIES = 3                 # увеличили число попыток с 2 до 3
 BACKOFF_BASE = 1.0              # базовая пауза при retry (сек)
 
 # Статический словарь блокировок по chat_id — предотвращает параллельные стримы в одном чате.
@@ -515,7 +515,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                     messages=messages,
                     stream=True,
                     # для текущей модели используется max_completion_tokens
-                    max_completion_tokens=220
+                    max_completion_tokens=800  # увеличили лимит токенов, чтобы помещались большие ответы
                 )
 
                 # основной цикл по приходящим чанкам
@@ -580,7 +580,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                         model="gpt-5-mini",
                         messages=messages,
                         stream=False,
-                        max_completion_tokens=220
+                        max_completion_tokens=800  # тот же лимит, что и в потоковом варианте
                     )
                     # попытка унифицировать доступ к тексту
                     content = _safe_get_delta_content(resp)
