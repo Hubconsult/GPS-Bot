@@ -1,7 +1,5 @@
 import os
 from pathlib import Path
-
-import httpx
 from dotenv import load_dotenv
 import telebot
 from openai import OpenAI
@@ -51,20 +49,12 @@ if not OPENAI_API_KEY:
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
-
-http_client = httpx.Client(
-    http2=True,
-    timeout=10.0,
-    limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
-)
-
-client = OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Explicit re-exports for clearer "from settings import ..." usage
 __all__ = [
     "bot",
     "client",
-    "http_client",
     "FREE_LIMIT",
     "PAY_URL_HARMONY",
     "PAY_URL_REFLECTION",

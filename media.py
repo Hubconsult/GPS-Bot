@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 import requests
 from telebot import types
+from openai import OpenAI
+
 from settings import (
     bot,
     client,
@@ -27,7 +29,7 @@ from storage import (
     mark_trial_used,
     add_package,
 )
-from worker_media import enqueue_media_task
+from media_utils import make_pdf, make_excel, make_pptx
 
 # Состояние простое: что от пользователя ждём далее
 user_media_state = {}   # {chat_id: {"mode": "photo_gen"/"photo_analyze"/"pdf"/"excel"/"pptx"}}
@@ -193,8 +195,8 @@ def media_text_router(m):
             bot.send_message(m.chat.id, out_of_limit_text("docs"), reply_markup=multimedia_buy_menu())
             user_media_state.pop(m.chat.id, None)
             return
-        bot.send_message(m.chat.id, "📄 Готовлю PDF, пришлю файл чуть позже…")
-        enqueue_media_task(m.chat.id, "pdf", m.text or "")
+        pdf_bytes = make_pdf(m.text or "")
+        bot.send_document(m.chat.id, document=io.BytesIO(pdf_bytes), visible_file_name="document.pdf", caption="PDF готов ✅")
         user_media_state.pop(m.chat.id, None)
         return
 
@@ -203,8 +205,8 @@ def media_text_router(m):
             bot.send_message(m.chat.id, out_of_limit_text("docs"), reply_markup=multimedia_buy_menu())
             user_media_state.pop(m.chat.id, None)
             return
-        bot.send_message(m.chat.id, "📊 Формирую Excel, отправлю, как только соберу данные…")
-        enqueue_media_task(m.chat.id, "excel", m.text or "")
+        xlsx_bytes = make_excel(m.text or "")
+        bot.send_document(m.chat.id, document=io.BytesIO(xlsx_bytes), visible_file_name="data.xlsx", caption="Excel готов ✅")
         user_media_state.pop(m.chat.id, None)
         return
 
@@ -213,8 +215,8 @@ def media_text_router(m):
             bot.send_message(m.chat.id, out_of_limit_text("docs"), reply_markup=multimedia_buy_menu())
             user_media_state.pop(m.chat.id, None)
             return
-        bot.send_message(m.chat.id, "🖼️ Собираю презентацию, скоро пришлю готовый файл…")
-        enqueue_media_task(m.chat.id, "pptx", m.text or "")
+        pptx_bytes = make_pptx(m.text or "")
+        bot.send_document(m.chat.id, document=io.BytesIO(pptx_bytes), visible_file_name="slides.pptx", caption="Презентация готова ✅")
         user_media_state.pop(m.chat.id, None)
         return
 
