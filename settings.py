@@ -19,6 +19,9 @@ PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL", "https://yookassa.ru/")
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1")     # генерация изображений
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o-mini")   # анализ изображений (vision)
 
+# --- Модель для основного чата (GPT-5 mini) ---
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-5-mini")
+
 # --- Урлы для докупки пакетов (можно оставить заглушки) ---
 PAY_URL_PACK_PHOTO_50 = os.getenv("PAY_URL_PACK_PHOTO_50", "https://yookassa.ru/")
 PAY_URL_PACK_PHOTO_200 = os.getenv("PAY_URL_PACK_PHOTO_200", "https://yookassa.ru/")
@@ -70,6 +73,7 @@ __all__ = [
 __all__ += [
     "IMAGE_MODEL",
     "VISION_MODEL",
+    "CHAT_MODEL",
     "PAY_URL_PACK_PHOTO_50",
     "PAY_URL_PACK_PHOTO_200",
     "PAY_URL_PACK_DOC_10",
