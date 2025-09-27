@@ -40,6 +40,7 @@ from bot_utils import show_typing
 from settings import (
     bot,
     client,
+    CHAT_MODEL,
     FREE_LIMIT,
     is_owner,
     PAY_URL_HARMONY,
@@ -504,7 +505,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         # Синхронный (нестриминговый) запрос к GPT
         try:
             resp = client.chat.completions.create(
-                model="gpt-5-mini",
+                model=CHAT_MODEL,
                 messages=messages,
                 stream=False,
                 max_completion_tokens=800  # длинные ответы умещаются без обрезки
