@@ -33,3 +33,7 @@ def start_payments_worker() -> None:
 
 
 __all__ = ["payments_worker", "start_payments_worker"]
+
+
+if __name__ == "__main__":
+    payments_worker()
