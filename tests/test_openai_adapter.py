@@ -1,7 +1,14 @@
+from __future__ import annotations
+
 import types
+
 import unittest
 
-from openai_adapter import call_chat_completion, prepare_responses_input
+from openai_adapter import (
+    call_chat_completion,
+    coerce_content_to_text,
+    prepare_responses_input,
+)
 
 
 class _DummyResponse:
@@ -94,6 +101,32 @@ class PrepareResponsesInputTests(unittest.TestCase):
                 {"role": "assistant", "content": ["already", " list"]},
             ],
         )
+
+
+class CoerceContentToTextTests(unittest.TestCase):
+    def test_skips_reasoning_objects(self):
+        class DummyItem:
+            def __init__(self, type_: str, text: str | None = None, content: str | None = None):
+                self.type = type_
+                self.text = text
+                self.content = content
+
+        reasoning = DummyItem("reasoning", text="internal", content="internal")
+        visible = DummyItem("output_text", text="Visible answer")
+
+        result = coerce_content_to_text([reasoning, visible])
+
+        self.assertEqual(result, "Visible answer")
+
+    def test_skips_reasoning_mappings(self):
+        payload = [
+            {"type": "reasoning", "text": "internal"},
+            {"type": "output_text", "text": "Visible answer"},
+        ]
+
+        result = coerce_content_to_text(payload)
+
+        self.assertEqual(result, "Visible answer")
 
 
 if __name__ == "__main__":  # pragma: no cover - direct execution
