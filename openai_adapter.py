@@ -45,6 +45,11 @@ def coerce_content_to_text(content: Any) -> str:
     if text_attr is not None:
         return coerce_content_to_text(text_attr)
 
+    for attr_name in ("content", "value"):
+        attr_value = getattr(content, attr_name, None)
+        if attr_value is not None and attr_value is not content:
+            return coerce_content_to_text(attr_value)
+
     if isinstance(content, list):
         parts = [coerce_content_to_text(item) for item in content]
         return "".join(parts)
