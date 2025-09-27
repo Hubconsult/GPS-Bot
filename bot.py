@@ -405,6 +405,52 @@ fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 _logger.addHandler(fh)
 
 
+def _coerce_content_to_text(content) -> str:
+    """Приводит разные форматы контента OpenAI к строке."""
+
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+
+    # Новые SDK могут возвращать объекты с атрибутом text
+    text_attr = getattr(content, "text", None)
+    if isinstance(text_attr, str):
+        return text_attr
+    if text_attr is not None:
+        return _coerce_content_to_text(text_attr)
+
+    if isinstance(content, list):
+        parts = [_coerce_content_to_text(item) for item in content]
+        return "".join(parts)
+
+    if isinstance(content, dict):
+        if isinstance(content.get("text"), str):
+            return content.get("text", "")
+        if "content" in content:
+            return _coerce_content_to_text(content["content"])
+        if "value" in content:
+            return _coerce_content_to_text(content["value"])
+
+    return str(content)
+
+
+def _extract_message_text(message) -> str:
+    if message is None:
+        return ""
+
+    if isinstance(message, dict):
+        return _coerce_content_to_text(message.get("content"))
+
+    content = getattr(message, "content", None)
+    text = _coerce_content_to_text(content)
+    if text:
+        return text
+
+    # fallback: иногда текст может лежать в message.text
+    return _coerce_content_to_text(getattr(message, "text", ""))
+
+
 def _get_chat_lock(chat_id: int) -> Lock:
     """Возвращает (и создаёт при необходимости) Lock для конкретного чата."""
     lock = _chat_locks.get(chat_id)
@@ -428,12 +474,12 @@ def _safe_get_delta_content(chunk) -> str | None:
         delta = getattr(getattr(chunk, "choices", [None])[0], "delta", None)
         if delta is not None:
             # объектный интерфейс
-            content = getattr(delta, "content", None)
+            content = _coerce_content_to_text(getattr(delta, "content", None))
             if content:
                 return content
             # dict-like delta
             if isinstance(delta, dict):
-                c = delta.get("content")
+                c = _coerce_content_to_text(delta.get("content"))
                 if c:
                     return c
 
@@ -448,11 +494,11 @@ def _safe_get_delta_content(chunk) -> str | None:
             # try object-style message
             msg = getattr(choice0, "message", None)
             if msg is not None:
-                content = getattr(msg, "content", None)
+                content = _coerce_content_to_text(getattr(msg, "content", None))
                 if content:
                     return content
                 if isinstance(msg, dict):
-                    c = msg.get("content")
+                    c = _coerce_content_to_text(msg.get("content"))
                     if c:
                         return c
 
@@ -463,12 +509,16 @@ def _safe_get_delta_content(chunk) -> str | None:
                 if ch0:
                     # prefer delta.content
                     d = ch0.get("delta")
-                    if isinstance(d, dict) and d.get("content"):
-                        return d.get("content")
+                    if isinstance(d, dict):
+                        c = _coerce_content_to_text(d.get("content"))
+                        if c:
+                            return c
                     # then try message.content
                     m = ch0.get("message")
-                    if isinstance(m, dict) and m.get("content"):
-                        return m.get("content")
+                    if isinstance(m, dict):
+                        c = _coerce_content_to_text(m.get("content"))
+                        if c:
+                            return c
             except Exception:
                 pass
 
@@ -511,8 +561,9 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                 max_completion_tokens=800  # длинные ответы умещаются без обрезки
             )
             # Получаем текст ответа
-            content = getattr(resp.choices[0].message, "content", None)
-            final_text = (content or "").strip() or "⚠️ Ответ пуст."
+            final_text = _extract_message_text(resp.choices[0].message).strip()
+            if not final_text:
+                final_text = "⚠️ Ответ пуст."
         except Exception as e:
             _logger.exception("Non-stream call failed: %s", e)
             final_text = "⚠️ Ошибка при генерации ответа. Попробуйте позже."
