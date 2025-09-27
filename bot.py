@@ -13,6 +13,9 @@ from storage import (
     increment_used,
     clear_history,
     iter_history_chat_ids,
+    load_history,
+    reset_used_free,
+    save_history,
     r,
     TTL,
 )
@@ -92,6 +95,15 @@ _language_cache: dict[int, str] = {}
 # --- Подтверждение подписки ---
 verified_users: Set[int] = set()
 pending_verification: Set[int] = set()
+
+
+def _ensure_history_cached(chat_id: int) -> None:
+    if chat_id not in user_histories:
+        past = load_history(chat_id)
+        if past:
+            user_histories[chat_id] = past
+        else:
+            user_histories[chat_id] = []
 
 
 def has_channel_subscription(user_id: int) -> bool:
@@ -334,6 +346,16 @@ def check_limit(chat_id) -> bool:
 # --- Helpers ---
 
 def increment_counter(chat_id) -> None:
+    if is_owner(chat_id):
+        reset_used_free(chat_id)
+        return
+
+    used, has_tariff = get_user_usage(chat_id)
+    if has_tariff:
+        if used:
+            reset_used_free(chat_id)
+        return
+
     increment_used(chat_id)
 
 # --- Получение режима из активного тарифа ---
@@ -515,8 +537,10 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         return
 
     try:
+        _ensure_history_cached(chat_id)
+
         # Добавляем новое сообщение пользователя в историю
-        history = user_histories.get(chat_id, [])
+        history = user_histories.setdefault(chat_id, [])
         history.append({"role": "user", "content": user_text})
         short_history = history[-6:]
         system_prompt = MODES[mode_key]["system_prompt"]
@@ -559,8 +583,13 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                 bot.send_message(chat_id, safe_text or final_text, parse_mode="HTML")
 
         # Сохраняем ответ в историю
-        short_history.append({"role": "assistant", "content": final_text})
-        user_histories[chat_id] = short_history[-HISTORY_LIMIT:]
+        history.append({"role": "assistant", "content": final_text})
+        trimmed_history = history[-HISTORY_LIMIT:]
+        user_histories[chat_id] = trimmed_history
+        try:
+            save_history(chat_id, trimmed_history)
+        except Exception:
+            _logger.exception("Failed to persist chat history")
 
     finally:
         with suppress(Exception):
@@ -846,7 +875,7 @@ def who_are_you(m):
 
 # --- Фоновая проверка окончаний подписок и очистка истории ---
 def background_checker():
-    counter = 0
+    counter = 1
     while True:
         check_expiring_tariffs(bot)
 

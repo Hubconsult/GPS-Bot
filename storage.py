@@ -346,6 +346,20 @@ def increment_used(chat_id: int):
     conn.commit()
     conn.close()
 
+
+def reset_used_free(chat_id: int) -> None:
+    """Сбросить счётчик бесплатных сообщений пользователя."""
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR IGNORE INTO users(chat_id, used_free, has_tariff) VALUES(?, 0, 0)",
+        (chat_id,),
+    )
+    c.execute("UPDATE users SET used_free = 0 WHERE chat_id = ?", (chat_id,))
+    conn.commit()
+    conn.close()
+
 # ---- НИЖЕ ДОБАВИТЬ код для мультимедиа-лимитов ----
 import datetime
 
