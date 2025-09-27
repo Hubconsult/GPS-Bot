@@ -565,7 +565,11 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
             if not final_text:
                 final_text = "⚠️ Ответ пуст."
         except Exception as e:
-            _logger.exception("Non-stream call failed: %s", e)
+            import traceback
+
+            print("❌ Ошибка GPT:", e)
+            traceback.print_exc()
+            _logger.exception("Non-stream call failed")
             final_text = "⚠️ Ошибка при генерации ответа. Попробуйте позже."
 
         # Отправляем или редактируем сообщение
