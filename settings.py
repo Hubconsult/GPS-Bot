@@ -54,7 +54,7 @@ bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 http_client = httpx.Client(
     http2=True,
-    timeout=10.0,
+    timeout=60.0,
     limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
 )
 
