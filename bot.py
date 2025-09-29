@@ -54,23 +54,40 @@ from settings import (
     PAY_URL_TRAVEL,
     SYSTEM_PROMPT,
 )
+from openai_adapter import extract_response_text, prepare_responses_input
 
-# --- Минимальный и безопасный вызов Chat Completions без любых обёрток ---
+# --- Минимальный и безопасный вызов Chat/Responses API с извлечением текста ---
 def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
     """
-    Всегда используем chat.completions и возвращаем только чистый текст.
-    Никаких Responses API, reasoning-объектов и т.п.
+    Сначала пытаемся вызвать Chat Completions; если ответ пустой или происходит
+    ошибка, пробуем Responses API. Текст извлекаем через extract_response_text.
     """
-    resp = client.chat.completions.create(
-        model=CHAT_MODEL,
-        messages=messages,
-        max_completion_tokens=max_tokens,
-    )
-    # Извлекаем строго текст ассистента
-    choice = resp.choices[0]
-    msg = getattr(choice, "message", None)
-    text = getattr(msg, "content", None)
-    return text if isinstance(text, str) else ""
+
+    # 1. Chat Completions — max_tokens иногда всё ещё работает
+    try:
+        kwargs = {"model": CHAT_MODEL, "messages": messages}
+        if max_tokens is not None:
+            kwargs["max_completion_tokens"] = max_tokens
+        resp = client.chat.completions.create(**kwargs)
+        text = extract_response_text(resp)
+        if text:
+            return text.strip()
+    except Exception:
+        pass  # если ошибка — пробуем responses API
+
+    # 2. Responses API — используем max_output_tokens
+    try:
+        kwargs = {
+            "model": CHAT_MODEL,
+            "input": prepare_responses_input(messages),
+        }
+        if max_tokens is not None:
+            kwargs["max_output_tokens"] = max_tokens
+        resp = client.responses.create(**kwargs)
+        text = extract_response_text(resp)
+        return text.strip() if text else ""
+    except Exception:
+        return ""
 
 # Initialize the SQLite storage before handling any requests
 init_db()
