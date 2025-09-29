@@ -40,11 +40,6 @@ from media import multimedia_menu
 
 from bot_utils import show_typing
 from telebot import util as telebot_util
-from openai_adapter import (
-    call_chat_completion,
-    coerce_content_to_text,
-    dump_response_for_log,
-)
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -59,6 +54,23 @@ from settings import (
     PAY_URL_TRAVEL,
     SYSTEM_PROMPT,
 )
+
+# --- Минимальный и безопасный вызов Chat Completions без любых обёрток ---
+def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
+    """
+    Всегда используем chat.completions и возвращаем только чистый текст.
+    Никаких Responses API, reasoning-объектов и т.п.
+    """
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+    # Извлекаем строго текст ассистента
+    choice = resp.choices[0]
+    msg = getattr(choice, "message", None)
+    text = getattr(msg, "content", None)
+    return text if isinstance(text, str) else ""
 
 # Initialize the SQLite storage before handling any requests
 init_db()
@@ -470,74 +482,6 @@ def _get_chat_lock(chat_id: int) -> Lock:
     return lock
 
 
-def _safe_get_delta_content(chunk) -> str | None:
-    """
-    Универсально извлекает текстовый фрагмент из stream-chunk.
-    Поддерживает:
-     - chunk.choices[0].delta.content (обычно для incremental stream)
-     - chunk.choices[0].message.content (иногда финальный текст приходит в message)
-     - dict-like структуры от разных SDK
-    Возвращает строку или None.
-    """
-    try:
-        # 1) new style: chunk.choices[0].delta.content
-        delta = getattr(getattr(chunk, "choices", [None])[0], "delta", None)
-        if delta is not None:
-            # объектный интерфейс
-            content = coerce_content_to_text(getattr(delta, "content", None))
-            if content:
-                return content
-            # dict-like delta
-            if isinstance(delta, dict):
-                c = coerce_content_to_text(delta.get("content"))
-                if c:
-                    return c
-
-        # 2) sometimes final message is in choices[0].message.content
-        choice0 = None
-        try:
-            choice0 = chunk.choices[0]
-        except Exception:
-            pass
-
-        if choice0 is not None:
-            # try object-style message
-            msg = getattr(choice0, "message", None)
-            if msg is not None:
-                content = coerce_content_to_text(getattr(msg, "content", None))
-                if content:
-                    return content
-                if isinstance(msg, dict):
-                    c = coerce_content_to_text(msg.get("content"))
-                    if c:
-                        return c
-
-        # 3) dict-like root fallback: chunk["choices"][0]["message"]["content"] or delta
-        if isinstance(chunk, dict):
-            try:
-                ch0 = chunk.get("choices", [None])[0]
-                if ch0:
-                    # prefer delta.content
-                    d = ch0.get("delta")
-                    if isinstance(d, dict):
-                        c = coerce_content_to_text(d.get("content"))
-                        if c:
-                            return c
-                    # then try message.content
-                    m = ch0.get("message")
-                    if isinstance(m, dict):
-                        c = coerce_content_to_text(m.get("content"))
-                        if c:
-                            return c
-            except Exception:
-                pass
-
-    except Exception:
-        return None
-
-    return None
-
-
 def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> None:
     """
     Отправляет запрос в GPT-5 mini без стриминга и сразу возвращает полный ответ.
@@ -566,17 +510,10 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 
         # Синхронный (нестриминговый) запрос к GPT
         try:
-            final_text, raw_response = call_chat_completion(
-                client,
-                CHAT_MODEL,
-                messages,
-                max_tokens=800,
-                stream=False,
-            )
+            final_text = ask_gpt(messages, max_tokens=800)
             final_text = sanitize_model_output((final_text or "").strip())
             if not final_text:
-                dumped = dump_response_for_log(raw_response)
-                _logger.warning("Empty completion text", extra={"response": dumped})
+                _logger.warning("Empty completion text")
                 final_text = "⚠️ Ответ пуст."
         except Exception as e:
             import traceback
