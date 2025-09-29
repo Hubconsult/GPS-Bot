@@ -64,7 +64,7 @@ def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
     resp = client.chat.completions.create(
         model=CHAT_MODEL,
         messages=messages,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_tokens,
     )
     # Извлекаем строго текст ассистента
     choice = resp.choices[0]
