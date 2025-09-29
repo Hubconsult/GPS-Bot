@@ -973,27 +973,26 @@ def run_test_mode(call):
         bot.answer_callback_query(call.id)
         return
 
+    chat_id = call.message.chat.id
     mode_key = call.data.replace("test_", "")
-    if call.message.chat.id not in user_test_mode_usage:
-        user_test_mode_usage[call.message.chat.id] = {
+    if chat_id not in user_test_mode_usage:
+        user_test_mode_usage[chat_id] = {
             "short_friend": 0,
             "philosopher": 0,
             "academic": 0,
         }
-        user_test_modes[call.message.chat.id] = "academic"
 
-    if user_test_mode_usage[call.message.chat.id][mode_key] >= 2:
+    if user_test_mode_usage[chat_id][mode_key] >= 2:
         bot.answer_callback_query(call.id, "❌ Лимит 2 сообщений в этом режиме исчерпан.")
         return
 
     bot.answer_callback_query(call.id, f"✅ Пробный режим {MODES[mode_key]['name']} активирован!")
-    bot.send_message(call.message.chat.id, f"Спроси меня что-то в режиме <b>{MODES[mode_key]['name']}</b> 👇")
+    bot.send_message(chat_id, f"Спроси меня что-то в режиме <b>{MODES[mode_key]['name']}</b> 👇")
 
-    # фиксируем, что активный тестовый режим запущен
-    clear_history(call.message.chat.id)
-    user_histories[call.message.chat.id] = []
-    user_test_mode_usage[call.message.chat.id][mode_key] += 1
-    user_test_modes[call.message.chat.id] = mode_key
+    # фиксируем, что активный тестовый режим запущен, но не тратим попытку
+    clear_history(chat_id)
+    user_histories[chat_id] = []
+    user_test_modes[chat_id] = mode_key
 
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
 @bot.message_handler(func=lambda msg: True)
