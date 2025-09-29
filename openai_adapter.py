@@ -239,7 +239,7 @@ def call_chat_completion(
     if chat_api and hasattr(chat_api, "create"):
         kwargs = {"model": model, "messages": list(messages)}
         if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
+            kwargs["max_completion_tokens"] = max_tokens
         if stream is not None:
             kwargs["stream"] = stream
         try:
