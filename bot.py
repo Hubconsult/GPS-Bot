@@ -400,6 +400,12 @@ def increment_counter(chat_id) -> None:
 # --- Получение режима из активного тарифа ---
 
 def get_user_mode(chat_id: int) -> str:
+    # Если этот пользователь является владельцем бота, назначаем режим «Философ»
+    # вне зависимости от тарифа. OWNER_ID и функция is_owner импортируются из settings.py.
+    if is_owner(chat_id):
+        return "philosopher"
+
+    # Для остальных пользователей режим определяется активным тарифом
     info = user_tariffs.get(chat_id)
     if not info:
         return "short_friend"
