@@ -604,17 +604,11 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         except Exception:
             _logger.exception("Stream call failed, fallback to non-stream")
 
-        # Если поток не вернул текст — делаем обычный вызов.
-        # Сначала пробуем с умеренным лимитом, затем при пустом результате увеличиваем лимит.
+        # Если поток не вернул текст — делаем обычный вызов без ограничения токенов.
         if not final_text:
             try:
-                # Первая попытка: ограничиваем вывод 2048 токенами
-                final_text = ask_gpt(messages, max_tokens=2048)
+                final_text = ask_gpt(messages)
                 final_text = (final_text or "").strip()
-                # Если ответ всё равно пустой — пробуем снова, но с большим лимитом
-                if not final_text:
-                    final_text = ask_gpt(messages, max_tokens=4096)
-                    final_text = (final_text or "").strip()
             except Exception:
                 final_text = ""
 
