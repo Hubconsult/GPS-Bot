@@ -127,6 +127,10 @@ user_test_mode_usage = {}  # {chat_id: {"short_friend": int, "philosopher": int,
 # кеш выбранного языка (для офлайн-режима, если Redis недоступен)
 _language_cache: dict[int, str] = {}
 
+# --- Кэш ответов ---
+# Сохраняет последние ответы: ключ (chat_id, text_lower) -> ответ.
+response_cache: dict[tuple[int, str], str] = {}
+
 # --- Подтверждение подписки ---
 verified_users: Set[int] = set()
 pending_verification: Set[int] = set()
@@ -458,6 +462,10 @@ STREAM_STALL_TIMEOUT = 30.0     # увеличили с 12.0, даём стри�
 MAX_RETRIES = 3                 # увеличили число попыток с 2 до 3
 BACKOFF_BASE = 1.0              # базовая пауза при retry (сек)
 
+# --- Размер контекста для модели ---
+# Сколько последних сообщений из истории отправлять в GPT.
+CONTEXT_MESSAGES = 50
+
 # Статический словарь блокировок по chat_id — предотвращает параллельные стримы в одном чате.
 _chat_locks: dict[int, Lock] = {}
 _logger = logging.getLogger("gpsbot.stream")
@@ -506,8 +514,8 @@ def _get_chat_lock(chat_id: int) -> Lock:
 
 def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> None:
     """
-    Отправляет запрос в GPT-5 mini без стриминга и сразу возвращает полный ответ.
-    В случае ошибки возвращает сообщение об ошибке, чтобы пользователь не оставался с «…».
+    Отправляет запрос в GPT‑5 mini с потоковой отдачей и кэшированием.
+    Если пользователь задаёт тот же вопрос повторно, ответ берётся из кэша.
     """
     lock = _get_chat_lock(chat_id)
     if not lock.acquire(blocking=False):
@@ -521,40 +529,103 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         # Добавляем новое сообщение пользователя в историю
         history = user_histories.setdefault(chat_id, [])
         history.append({"role": "user", "content": user_text})
-        short_history = history[-6:]
-        system_prompt = MODES[mode_key]["system_prompt"]
-        messages = [{"role": "system", "content": system_prompt}] + short_history
 
-        # Показываем «печатает..."
+        # Подготовка контекста для GPT: берём последние CONTEXT_MESSAGES сообщений
+        context_history = history[-CONTEXT_MESSAGES:]
+        system_prompt = MODES[mode_key]["system_prompt"]
+        messages = [{"role": "system", "content": system_prompt}] + context_history
+
+        # Проверяем кэш: если ранее был такой запрос — возвращаем готовый ответ
+        cache_key = (chat_id, user_text.strip().lower())
+        cached = response_cache.get(cache_key)
+        if cached:
+            show_typing(chat_id)
+            draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
+            msg_id = draft.message_id
+            safe_cached = _sanitize_for_telegram(cached)
+            bot.edit_message_text(safe_cached or cached, chat_id, msg_id, parse_mode="HTML")
+            # Сохраняем ответ в историю
+            history.append({"role": "assistant", "content": cached})
+            trimmed = history[-HISTORY_LIMIT:]
+            user_histories[chat_id] = trimmed
+            with suppress(Exception):
+                save_history(chat_id, trimmed)
+            return
+
+        # Отображаем индикатор «печатает…» и создаём черновик
         show_typing(chat_id)
         draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
         msg_id = draft.message_id
 
-        # Синхронный (нестриминговый) запрос к GPT
+        final_text = ""
+        partial = ""
+        first_sent = False
+        last_edit = time.time()
         try:
-            final_text = ask_gpt(messages, max_tokens=4096)
-            final_text = sanitize_model_output((final_text or "").strip())
-            if not final_text:
-                _logger.warning("Empty completion text")
-                final_text = "⚠️ Ответ пуст."
-        except Exception as e:
-            import traceback
+            # Потоковый запрос к модели
+            resp = client.chat.completions.create(
+                model=CHAT_MODEL,
+                messages=messages,
+                stream=True,
+                response_format={"type": "text"},
+            )
+            for chunk in resp:
+                # Приходим к частичному контенту: сначала смотрим delta, затем message
+                content = None
+                try:
+                    delta = chunk.choices[0].delta
+                    content = getattr(delta, "content", None)
+                except Exception:
+                    pass
+                if not content:
+                    try:
+                        m = chunk.choices[0].message
+                        content = getattr(m, "content", None)
+                    except Exception:
+                        content = None
+                if content:
+                    partial += content
+                    # Первый ответ отправляем, когда накоплено >= FIRST_CHUNK_TOKENS токенов
+                    if not first_sent and len(partial.split()) >= FIRST_CHUNK_TOKENS:
+                        safe = _sanitize_for_telegram(partial)
+                        bot.edit_message_text(safe or partial, chat_id, msg_id, parse_mode="HTML")
+                        first_sent = True
+                        last_edit = time.time()
+                    # Затем редактируем текст не чаще, чем раз в EDIT_INTERVAL секунд
+                    elif first_sent and (time.time() - last_edit) >= EDIT_INTERVAL:
+                        safe = _sanitize_for_telegram(partial)
+                        bot.edit_message_text(safe or partial, chat_id, msg_id, parse_mode="HTML")
+                        last_edit = time.time()
+            final_text = partial.strip()
+        except Exception:
+            _logger.exception("Stream call failed, fallback to non-stream")
 
-            print("❌ Ошибка GPT:", e)
-            traceback.print_exc()
-            _logger.exception("Non-stream call failed")
-            final_text = "⚠️ Ошибка при генерации ответа. Попробуйте позже."
+        # Если поток не вернул текст, делаем обычный вызов
+        if not final_text:
+            try:
+                final_text = ask_gpt(messages, max_tokens=4096)
+                final_text = (final_text or "").strip()
+            except Exception:
+                final_text = ""
 
-        # Отправляем или редактируем сообщение
+        # Финальная обработка: убираем служебные объекты и проверяем пустой ответ
+        final_text = sanitize_model_output(final_text)
+        if not final_text:
+            _logger.warning("Empty completion text")
+            final_text = "⚠️ Ответ пуст."
+
+        # Сохраняем ответ в кэш
+        response_cache[cache_key] = final_text
+
+        # Отправляем финальный ответ
+        safe_text = _sanitize_for_telegram(final_text)
         try:
-            safe_text = _sanitize_for_telegram(final_text)
             bot.edit_message_text(safe_text or final_text, chat_id, msg_id, parse_mode="HTML")
         except Exception:
             with suppress(Exception):
-                safe_text = _sanitize_for_telegram(final_text)
                 bot.send_message(chat_id, safe_text or final_text, parse_mode="HTML")
 
-        # Сохраняем ответ в историю
+        # Добавляем ответ в историю и сохраняем в БД
         history.append({"role": "assistant", "content": final_text})
         trimmed_history = history[-HISTORY_LIMIT:]
         user_histories[chat_id] = trimmed_history
@@ -852,7 +923,9 @@ def background_checker():
         check_expiring_tariffs(bot)
 
         if counter % 7 == 0:
+            # Очищаем локальные хранилища: историю сообщений, кэш ответов и отправленные сообщения
             user_histories.clear()
+            response_cache.clear()
             for chat_id, msgs in user_messages.items():
                 for msg_id in msgs:
                     try:
