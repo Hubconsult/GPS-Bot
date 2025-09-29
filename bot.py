@@ -464,7 +464,7 @@ BACKOFF_BASE = 1.0              # базовая пауза при retry (сек
 
 # --- Размер контекста для модели ---
 # Сколько последних сообщений из истории отправлять в GPT.
-CONTEXT_MESSAGES = 6
+CONTEXT_MESSAGES = 4
 
 # Статический словарь блокировок по chat_id — предотвращает параллельные стримы в одном чате.
 _chat_locks: dict[int, Lock] = {}
@@ -603,7 +603,8 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         # Если поток не вернул текст, делаем обычный вызов
         if not final_text:
             try:
-                final_text = ask_gpt(messages, max_tokens=4096)
+                # Уменьшаем лимит генерируемых токенов для ускорения ответа
+                final_text = ask_gpt(messages, max_tokens=2048)
                 final_text = (final_text or "").strip()
             except Exception:
                 final_text = ""
