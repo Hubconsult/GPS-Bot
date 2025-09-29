@@ -65,7 +65,11 @@ def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
 
     # 1. Chat Completions — max_tokens иногда всё ещё работает
     try:
-        kwargs = {"model": CHAT_MODEL, "messages": messages}
+        kwargs = {
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "response_format": {"type": "text"},
+        }
         if max_tokens is not None:
             kwargs["max_completion_tokens"] = max_tokens
         resp = client.chat.completions.create(**kwargs)
@@ -80,6 +84,7 @@ def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
         kwargs = {
             "model": CHAT_MODEL,
             "input": prepare_responses_input(messages),
+            "response_format": {"type": "text"},
         }
         if max_tokens is not None:
             kwargs["max_output_tokens"] = max_tokens
@@ -527,7 +532,7 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 
         # Синхронный (нестриминговый) запрос к GPT
         try:
-            final_text = ask_gpt(messages, max_tokens=800)
+            final_text = ask_gpt(messages, max_tokens=4096)
             final_text = sanitize_model_output((final_text or "").strip())
             if not final_text:
                 _logger.warning("Empty completion text")
