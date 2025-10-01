@@ -11,7 +11,7 @@ from settings import bot
 ASSETS_DIR = Path(__file__).resolve().parent
 
 
-# === СОЗВУЧИЕ (иконки) ===
+# === BASIC (иконки) ===
 ICON_REWARDS = [
     {"id": 1, "title": "Солнце", "file": "Солнце.png"},
     {"id": 2, "title": "Замок", "file": "Замок.png"},
@@ -25,7 +25,7 @@ ICON_REWARDS = [
 ]
 
 
-# === ОТРАЖЕНИЕ (аватарки) ===
+# === PRO (аватарки) ===
 AVATAR_REWARDS = [
     {"id": 10, "title": "Волна", "file": "Волна (avatar).png"},
     {"id": 11, "title": "Кролик", "file": "Кролик (avatar).png"},
@@ -39,7 +39,7 @@ AVATAR_REWARDS = [
 ]
 
 
-# === ПУТЕШЕСТВИЕ (карточки историй) ===
+# === ULTRA (карточки историй) ===
 CARD_REWARDS = [
     {"id": 19, "title": "Искра во тьме", "file": "Искра во тьме.png"},
     {"id": 20, "title": "Башня ветров", "file": "Башня ветров.png"},
@@ -55,7 +55,7 @@ CARD_REWARDS = [
 ]
 
 
-# === ПУТЕШЕСТВИЕ (фоны) ===
+# === ULTRA (фоны) ===
 BACKGROUND_REWARDS = [
     {"id": 30, "title": "Кристаллический рассвет", "file": "Кристаллический рассвет.png"},
     {"id": 31, "title": "Лесное свечение", "file": "Лесное свечение.png"},

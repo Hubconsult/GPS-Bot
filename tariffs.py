@@ -30,32 +30,32 @@ user_tariffs = {}  # {chat_id: {"tariff": str, "start": date, "end": date}}
 
 # --- Tariff definitions ---
 TARIFFS = {
-    "sozvuchie": {
-        "name": "Созвучие",
+    "basic": {
+        "name": "Basic",
         "price": 299,
-        "description": "Тариф «Созвучие» открывает доступ к коллекции иконок.",
+        "description": "SynteraGPT Basic — короткие ответы и базовые функции без выхода в интернет.",
         "starter_reward": lambda chat_id: send_reward(chat_id, random.choice(ICON_REWARDS)),
-        "category": "icons",
+        "category": "basic",
         "pay_url": PAY_URL_HARMONY,
         "media_limits": {"photos": 1, "docs": 1, "analysis": 1},
     },
-    "otrazhenie": {
-        "name": "Отражение",
+    "pro": {
+        "name": "Pro",
         "price": 999,
-        "description": "Тариф «Отражение» открывает доступ к аватаркам.",
+        "description": "SynteraGPT Pro — расширенные функции, мультимедиа и выход в интернет.",
         "starter_reward": lambda chat_id: send_reward(chat_id, random.choice(AVATAR_REWARDS)),
-        "category": "avatars",
+        "category": "pro",
         "pay_url": PAY_URL_REFLECTION,
         "media_limits": {"photos": 30, "docs": 10, "analysis": 20},
     },
-    "puteshestvie": {
-        "name": "Путешествие",
+    "ultra": {
+        "name": "Ultra",
         "price": 1999,
-        "description": "Тариф «Путешествие» открывает доступ к карточкам историй и фонам.",
+        "description": "SynteraGPT Ultra — полный доступ, максимум функций и расширенный интернет.",
         "starter_reward": lambda chat_id: send_reward(
             chat_id, random.choice(CARD_REWARDS + BACKGROUND_REWARDS)
         ),
-        "category": "journey",
+        "category": "ultra",
         "pay_url": PAY_URL_TRAVEL,
         "media_limits": {"photos": 70, "docs": 20, "analysis": 30},
     },
@@ -69,16 +69,16 @@ Configuration.secret_key = YOOKASSA_API_KEY
 
 # --- Mapping tariffs to dialogue modes ---
 TARIFF_MODES = {
-    "sozvuchie": "short_friend",  # 299₽ — Короткий друг
-    "otrazhenie": "philosopher",  # 999₽ — Философ
-    "puteshestvie": "academic",   # 1999₽ — Академический
+    "basic": "short_friend",  # 299₽ — короткие поддерживающие ответы
+    "pro": "philosopher",     # 999₽ — углублённые беседы
+    "ultra": "academic",      # 1999₽ — максимум аналитики
 }
 
 
 def start_payment(
     chat_id: int,
     tariff_key: str,
-    return_url: str = "https://t.me/VnutrenniyGPS_bot",
+    return_url: str = "https://t.me/SynteraGPT_bot",
 ) -> str:
     from payments_polling import add_payment
 

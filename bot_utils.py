@@ -8,7 +8,7 @@ from settings import bot
 def offer_renew(bot, chat_id, tariff_key=None):
     text = (
         "⏳ <b>Срок подписки подходит к концу</b>.\n\n"
-        "Путешествие можно продолжить — впереди новые награды и открытия."
+        "Продолжай общение с SynteraGPT — впереди новые инструменты и открытия."
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
     for key, t in TARIFFS.items():
