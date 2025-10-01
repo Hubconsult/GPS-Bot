@@ -308,12 +308,12 @@ def send_and_store(chat_id, text, **kwargs):
 
 def send_welcome_menu(chat_id: int) -> None:
     user_moods[chat_id] = []
-    text = (
-        "<b>SynteraGPT</b>\n"
-        "● online\n\n"
-        "Привет 👋 Я SynteraGPT — твой умный помощник!"
+    send_and_store(
+        chat_id,
+        START_CAPTION,
+        reply_markup=main_menu(),
+        parse_mode="HTML",
     )
-    send_and_store(chat_id, text, reply_markup=main_menu())
 
 # --- Клавиатуры ---
 
