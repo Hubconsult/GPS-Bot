@@ -616,7 +616,15 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
 def start(m):
-    send_subscription_prompt(m.chat.id, m.from_user.id)
+    if ensure_verified(
+        m.chat.id,
+        m.from_user.id,
+        remind=False,
+        force_check=True,
+    ):
+        send_welcome_menu(m.chat.id)
+    else:
+        send_subscription_prompt(m.chat.id, m.from_user.id)
 
 
 @bot.message_handler(commands=["publish"])
