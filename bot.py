@@ -101,19 +101,19 @@ def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
 init_db()
 
 # --- Константы подписки ---
-CHANNEL_USERNAME = "@GPT5_Navigator"
-CHANNEL_URL = "https://t.me/GPT5_Navigator"
-BOT_DEEP_LINK = "https://t.me/VnutrenniyGPS_bot"
+CHANNEL_USERNAME = "@SynteraAI"
+CHANNEL_URL = "https://t.me/SynteraAI"
+BOT_DEEP_LINK = "https://t.me/SynteraGPT_bot"
 PHOTO_FILE = Path(__file__).resolve().parent / "5371038341350424631-1280x720.png"
 START_CAPTION = (
-    "<b>GPT-5 Навигатор</b>\n\n"
-    "Добро пожаловать. Это твой внутренний GPS.\n\n"
+    "<b>SynteraGPT</b>\n\n"
+    "Чат-бот с выходом в интернет: найдёт, проверит и объяснит.\n\n"
     "Возможности:\n"
-    "— Psychological Astrologer: поиск смыслов в карте жизни\n"
-    "— Spiritual Psychologist: понимание глубинных процессов души\n"
-    "— Psychological Numerologist: числа как ключи к судьбе\n"
-    "— Поддержка 24/7, философские и дружеские разговоры\n"
-    "— Работа с фото и документами\n\n"
+    "— Поиск и проверка фактов онлайн\n"
+    "— GPT-5 интеллект и поддержка 24/7\n"
+    "— Анализ фото и документов\n"
+    "— Короткие и развёрнутые ответы\n\n"
+    "🔥 Бесплатный доступ к продвинутым технологиям — попробуй все форматы и оцени возможности.\n\n"
     "Чтобы перейти к боту, требуется подписка на канал."
 )
 
@@ -211,7 +211,7 @@ def send_subscription_reminder(chat_id: int, user_id: int, *, force: bool = Fals
     bot.send_message(
         chat_id,
         (
-            "Для использования бота нужно подписаться на канал @GPT5_Navigator.\n"
+            "Для использования бота нужно подписаться на канал @SynteraAI.\n"
             "После подписки нажмите «Проверить подписку»."
         ),
         reply_markup=kb,
@@ -255,7 +255,7 @@ def ensure_verified(
 
 # --- Регистрируем кнопки в меню Telegram (будут видны в канале под строкой чата)
 bot.set_my_commands([
-    types.BotCommand("info", "Тарифы и возможности GPT-5"),
+    types.BotCommand("info", "Тарифы SynteraGPT"),
     types.BotCommand("pay", "Оплата тарифов"),
     types.BotCommand("media", "Мультимедиа"),
     types.BotCommand("profile", "Профиль"),
@@ -318,28 +318,49 @@ def send_and_store(chat_id, text, **kwargs):
 def send_welcome_menu(chat_id: int) -> None:
     user_moods[chat_id] = []
     text = (
-        "<b>Внутренний GPS</b>\n"
+        "<b>SynteraGPT</b>\n"
         "● online\n\n"
-        "Привет 👋 Я твой Внутренний GPS!"
+        "Привет 👋 Я SynteraGPT — твой умный помощник!"
     )
     send_and_store(chat_id, text, reply_markup=main_menu())
 
 # --- Клавиатуры ---
 
 def main_menu():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=4)
-    kb.add("Чек-ин", "Стата", "Оплата", "Медиа")
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    kb.add("Чек-ин", "Стата", "Оплата")
+    kb.add("Медиа", "Информация", "Профиль")
     kb.add("Очистить", "Lang 🌐")
     return kb
 
 
 def pay_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    kb.add("Созвучие • иконки — 299 ₽")
-    kb.add("Отражение • аватарки — 999 ₽")
-    kb.add("Путешествие • истории и фоны — 1999 ₽")
+    kb.add("Basic • 299 ₽")
+    kb.add("Pro • 999 ₽")
+    kb.add("Ultra • 1999 ₽")
     kb.add("⬅️ Назад")
     return kb
+
+
+@bot.message_handler(func=lambda m: m.text == "Информация")
+def show_info(m):
+    bot.send_message(
+        m.chat.id,
+        get_info_text(),
+        reply_markup=info_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+@bot.message_handler(func=lambda m: m.text == "Профиль")
+def show_profile(m):
+    cmd_profile(m)
+
+
+@bot.message_handler(func=lambda m: m.text == "Медиа")
+def show_media(m):
+    cmd_media(m)
 
 # --- Работа с языком ---
 
@@ -476,11 +497,11 @@ CONTEXT_MESSAGES = 4
 
 # Статический словарь блокировок по chat_id — предотвращает параллельные стримы в одном чате.
 _chat_locks: dict[int, Lock] = {}
-_logger = logging.getLogger("gpsbot.stream")
+_logger = logging.getLogger("synteragpt.stream")
 _logger.setLevel(logging.INFO)
-Path("/root/GPS-Bot/logs").mkdir(parents=True, exist_ok=True)
+Path("/root/SynteraGPT/logs").mkdir(parents=True, exist_ok=True)
 # настроим простой file handler (по желанию)
-fh = logging.FileHandler("/root/GPS-Bot/logs/stream_gpt.log")
+fh = logging.FileHandler("/root/SynteraGPT/logs/stream_gpt.log")
 fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 _logger.addHandler(fh)
 
@@ -733,18 +754,18 @@ def pay_button(m):
 
 @bot.message_handler(
     func=lambda msg: msg.text in [
-        "Созвучие • иконки — 299 ₽",
-        "Отражение • аватарки — 999 ₽",
-        "Путешествие • истории и фоны — 1999 ₽",
+        "Basic • 299 ₽",
+        "Pro • 999 ₽",
+        "Ultra • 1999 ₽",
     ]
 )
 def tariffs(m):
     if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
         return
 
-    if "Созвучие" in m.text:
+    if m.text.startswith("Basic"):
         url = PAY_URL_HARMONY
-    elif "Отражение" in m.text:
+    elif m.text.startswith("Pro"):
         url = PAY_URL_REFLECTION
     else:
         url = PAY_URL_TRAVEL
@@ -820,7 +841,7 @@ def activate(m):
     if len(parts) < 2:
         send_and_store(
             m.chat.id,
-            "❌ Укажи тариф: sozvuchie, otrazhenie или puteshestvie",
+            "❌ Укажи тариф: basic, pro или ultra",
         )
         return
 
@@ -837,7 +858,7 @@ def hint(m):
     parts = m.text.split()
     if len(parts) < 3:
         send_and_store(
-            m.chat.id, "❌ Укажи тариф и шаг подсказки: /hint sozvuchie 0"
+            m.chat.id, "❌ Укажи тариф и шаг подсказки: /hint basic 0"
         )
         return
 
