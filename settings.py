@@ -1,8 +1,11 @@
 import os
 from pathlib import Path
 
+from contextlib import suppress
+
 from dotenv import load_dotenv
 import telebot
+from telebot import types
 from openai import OpenAI
 
 # Загружаем переменные из .env рядом с файлом
@@ -53,6 +56,14 @@ if not OPENAI_API_KEY:
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
+# По требованиям заказчика полностью убираем боковое меню со слеш-командами.
+# Для этого удаляем зарегистрированные команды и сбрасываем кнопку меню
+# (когда команд нет, Telegram больше не показывает боковую кнопку).
+with suppress(Exception):
+    bot.delete_my_commands()
+with suppress(Exception):
+    bot.set_chat_menu_button(menu_button=types.MenuButtonDefault())
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
