@@ -253,15 +253,6 @@ def ensure_verified(
     return False
 
 
-# --- Регистрируем кнопки в меню Telegram (будут видны в канале под строкой чата)
-bot.set_my_commands([
-    types.BotCommand("info", "Тарифы SynteraGPT"),
-    types.BotCommand("pay", "Оплата тарифов"),
-    types.BotCommand("media", "Мультимедиа"),
-    types.BotCommand("profile", "Профиль"),
-])
-
-
 # --- /info
 @bot.message_handler(commands=["info"])
 def cmd_info(m):
