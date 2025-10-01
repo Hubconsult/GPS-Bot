@@ -1,0 +1,21 @@
+name: Автообновление на сервере
+
+on:
+  push:
+    branches: [ main ]      # запуск при каждом пуше в main
+  workflow_dispatch:        # возможность запустить вручную из Actions
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Подключиться к серверу и обновить код
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /root/GPS-Bot
+            git pull origin main
+            systemctl restart gpsbot || true
