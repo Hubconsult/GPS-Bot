@@ -14,9 +14,9 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 FREE_LIMIT = int(os.getenv("FREE_LIMIT", "10"))
-PAY_URL_HARMONY = os.getenv("PAY_URL_HARMONY", "https://yookassa.ru/")
-PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION", "https://yookassa.ru/")
-PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL", "https://yookassa.ru/")
+PAY_URL_HARMONY = os.getenv("PAY_URL_HARMONY")
+PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION")
+PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL")
 
 # --- Новые настройки моделей для мультимедиа ---
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1")     # генерация изображений
@@ -53,6 +53,12 @@ if not TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env")
 if not OPENAI_API_KEY:
     raise ValueError("❌ OPENAI_API_KEY не найден в .env")
+if not PAY_URL_HARMONY:
+    raise ValueError("❌ PAY_URL_HARMONY не найден в .env")
+if not PAY_URL_REFLECTION:
+    raise ValueError("❌ PAY_URL_REFLECTION не найден в .env")
+if not PAY_URL_TRAVEL:
+    raise ValueError("❌ PAY_URL_TRAVEL не найден в .env")
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
@@ -95,5 +101,10 @@ __all__ += [
 
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
 YOOKASSA_API_KEY = os.getenv("YOOKASSA_API_KEY")
+
+if not YOOKASSA_SHOP_ID:
+    raise ValueError("❌ YOOKASSA_SHOP_ID не найден в .env")
+if not YOOKASSA_API_KEY:
+    raise ValueError("❌ YOOKASSA_API_KEY не найден в .env")
 
 __all__ += ["YOOKASSA_SHOP_ID", "YOOKASSA_API_KEY"]

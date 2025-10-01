@@ -87,10 +87,17 @@ def ensure_month_balance(chat_id: int):
 def try_consume(chat_id: int, kind: str) -> bool:
     if is_owner(chat_id):
         return True
-    # если есть активный тариф → не проверяем лимиты
+    # если есть активный тариф — работаем с месячным балансом тарифа
     if _tariff_is_active(chat_id):
+        # списываем из месячного тарифа
+        info = user_tariffs.get(chat_id)
+        if info:
+            tariff = TARIFFS.get(info["tariff"])
+            if tariff:
+                ensure_month_balance(chat_id)
+                return dec_media(chat_id, kind, 1)
         return True
-    # если есть активный тариф — работаем с месячным балансом
+    # если тариф есть, но ещё не активирован (например, оплачивается) — подстрахуемся
     if user_tariffs.get(chat_id):
         ensure_month_balance(chat_id)
         return dec_media(chat_id, kind, 1)
