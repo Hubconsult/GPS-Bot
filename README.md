@@ -15,6 +15,7 @@ Telegram bot "SynteraGPT" for intelligent assistance with GPT-5, media analysis,
    - `PAY_URL_HARMONY` – payment link for the "Basic" tariff (required)
    - `PAY_URL_REFLECTION` – payment link for the "Pro" tariff (required)
    - `PAY_URL_TRAVEL` – payment link for the "Ultra" tariff (required)
+   - `PAY_URL_PACK_*` – ссылки на оплату дополнительных пакетов (если продаёте пакеты)
    - `YOOKASSA_SHOP_ID` – YooKassa shop identifier used by the SDK (required)
    - `YOOKASSA_API_KEY` – YooKassa secret key used by the SDK (required)
 3. Run the bot:
