@@ -1,0 +1,49 @@
+from moviepy import VideoClip, CompositeVideoClip, TextClip
+from PIL import Image
+import numpy as np
+
+# Файл логотипа (лежит рядом со скриптом)
+logo_path = "ChatGPT Image.png"
+
+# Параметры ролика
+duration = 6    # длина 6 секунд
+fps = 30
+w, h = 1280, 720  # разрешение для Telegram
+
+# Эффект перелива
+def colorize_logo(t):
+    img = Image.open(logo_path).convert("RGBA").resize((400, 400))
+    arr = np.array(img)
+    shift = int(50 * np.sin(2 * np.pi * t / duration))
+    arr = np.roll(arr, shift, axis=1)
+    return arr
+
+# Вращение и смещение
+def make_frame(t):
+    img = Image.fromarray(colorize_logo(t))
+    angle = (360 * t / duration) % 360
+    img = img.rotate(angle, resample=Image.BICUBIC, expand=True)
+
+    bg = Image.new("RGBA", (w, h), (11, 7, 16, 255))
+    img_w, img_h = img.size
+    if t < 3:
+        x = (w - img_w) // 2
+    else:
+        x = (w - img_w) // 2 + int((t - 3) * 150)
+    y = (h - img_h) // 2
+    bg.paste(img, (x, y), img)
+
+    return np.array(bg.convert("RGB"))
+
+# Клип логотипа
+logo_clip = VideoClip(make_frame, duration=duration).set_fps(fps)
+
+# Текст появляется после 3-й секунды
+txt = TextClip("SynteraGPT", fontsize=72, color="white")\
+    .set_position("center").set_start(3).set_duration(3)
+subtxt = TextClip("AI-bot №1", fontsize=42, color="white")\
+    .set_position(("center", h // 2 + 60)).set_start(3).set_duration(3)
+
+# Итоговое видео
+final = CompositeVideoClip([logo_clip, txt, subtxt], size=(w, h))
+final.write_videofile("intro.mp4", fps=fps, codec="libx264", audio=False)
