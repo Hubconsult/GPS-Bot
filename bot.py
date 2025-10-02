@@ -38,6 +38,9 @@ from info import get_info_text, info_keyboard
 import media
 from media import multimedia_menu
 
+# Register web search handlers (command /web)
+import handlers.web  # noqa: F401 - регистрация хендлеров через импорт
+
 from bot_utils import show_typing
 from telebot import util as telebot_util
 
