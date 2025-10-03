@@ -104,7 +104,7 @@ init_db()
 CHANNEL_USERNAME = "@SynteraAI"
 CHANNEL_URL = "https://t.me/SynteraAI"
 BOT_DEEP_LINK = "https://t.me/SynteraGPT_bot"
-PHOTO_FILE = Path(__file__).resolve().parent / "5371038341350424631-1280x720.png"
+PHOTO_FILE = Path(__file__).resolve().parent / "baner_dlya_perehoda.png"
 START_CAPTION = (
     "<b>SynteraGPT</b>\n\n"
     "Чат-бот с выходом в интернет: найдёт, проверит и объяснит.\n\n"
