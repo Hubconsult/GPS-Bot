@@ -41,7 +41,17 @@ def _generate_post_text(mode: str = "long") -> str:
             response_format={"type": "text"},
             max_completion_tokens=400,
         )
-        return resp.choices[0].message.content.strip()
+
+        text = (
+            resp.choices[0].message.content
+            if resp.choices and resp.choices[0].message and resp.choices[0].message.content
+            else ""
+        )
+
+        if not text.strip():
+            raise ValueError("Empty GPT response")
+
+        return text.strip()
     except Exception as exc:
         print("[POSTGEN] Ошибка GPT:", exc)
         if mode == "short":
