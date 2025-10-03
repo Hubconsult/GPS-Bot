@@ -41,7 +41,7 @@ def _generate_post_text(mode: str = "long") -> str:
             response_format={"type": "text"},
             max_completion_tokens=400,
         )
-        return extract_response_text(resp).strip()
+        return resp.choices[0].message.content.strip()
     except Exception as exc:
         print("[POSTGEN] Ошибка GPT:", exc)
         if mode == "short":
