@@ -59,6 +59,9 @@ from settings import (
 )
 from openai_adapter import extract_response_text, prepare_responses_input
 
+# Регистрация команды /post
+import auto_post  # noqa: F401 - регистрация команды /post
+
 # --- Минимальный и безопасный вызов Chat/Responses API с извлечением текста ---
 def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
     """
@@ -973,7 +976,9 @@ def run_test_mode(call):
     user_test_modes[chat_id] = mode_key
 
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
-@bot.message_handler(func=lambda msg: True)
+@bot.message_handler(
+    func=lambda msg: bool(getattr(msg, "text", "")) and not msg.text.startswith("/")
+)
 def fallback(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
@@ -996,8 +1001,6 @@ def fallback(m):
 if __name__ == "__main__":
     from worker_media import start_media_worker
     from worker_payments import start_payments_worker
-
-    import auto_post  # noqa: F401 - регистрация команды /post
 
     start_media_worker()
     start_payments_worker()
