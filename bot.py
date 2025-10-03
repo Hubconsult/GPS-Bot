@@ -997,6 +997,8 @@ if __name__ == "__main__":
     from worker_media import start_media_worker
     from worker_payments import start_payments_worker
 
+    import auto_post  # noqa: F401 - регистрация команды /post
+
     start_media_worker()
     start_payments_worker()
     threading.Thread(target=background_checker, daemon=True).start()
