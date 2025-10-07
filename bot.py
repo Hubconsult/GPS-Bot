@@ -2,11 +2,10 @@ import threading
 import time
 import logging
 import datetime
-import re
 from threading import Lock
 from contextlib import suppress
 from pathlib import Path
-from typing import Set
+from typing import Callable, Set
 
 from storage import (
     init_db,
@@ -42,7 +41,6 @@ from media import multimedia_menu
 import handlers.web  # noqa: F401 - регистрация хендлеров через импорт
 
 from bot_utils import show_typing
-from telebot import util as telebot_util
 
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
@@ -57,48 +55,15 @@ from settings import (
     PAY_URL_TRAVEL,
     SYSTEM_PROMPT,
 )
-from openai_adapter import extract_response_text, prepare_responses_input
+from openai_adapter import (
+    coerce_content_to_text,
+    extract_response_text,
+    prepare_responses_input,
+)
+from text_utils import sanitize_for_telegram, sanitize_model_output
 
 # Регистрация команды /post
 import auto_post  # noqa: F401 - регистрация команды /post
-
-# --- Минимальный и безопасный вызов Chat/Responses API с извлечением текста ---
-def ask_gpt(messages: list[dict], *, max_tokens: int | None = None) -> str:
-    """
-    Сначала пытаемся вызвать Chat Completions; если ответ пустой или происходит
-    ошибка, пробуем Responses API. Текст извлекаем через extract_response_text.
-    """
-
-    # 1. Chat Completions — max_tokens иногда всё ещё работает
-    try:
-        kwargs = {
-            "model": CHAT_MODEL,
-            "messages": messages,
-            "response_format": {"type": "text"},
-        }
-        if max_tokens is not None:
-            kwargs["max_completion_tokens"] = max_tokens
-        resp = client.chat.completions.create(**kwargs)
-        text = extract_response_text(resp)
-        if text:
-            return text.strip()
-    except Exception:
-        pass  # если ошибка — пробуем responses API
-
-    # 2. Responses API — используем max_output_tokens
-    try:
-        kwargs = {
-            "model": CHAT_MODEL,
-            "input": prepare_responses_input(messages),
-            "response_format": {"type": "text"},
-        }
-        if max_tokens is not None:
-            kwargs["max_output_tokens"] = max_tokens
-        resp = client.responses.create(**kwargs)
-        text = extract_response_text(resp)
-        return text.strip() if text else ""
-    except Exception:
-        return ""
 
 # Initialize the SQLite storage before handling any requests
 init_db()
@@ -499,32 +464,67 @@ fh = logging.FileHandler("/root/SynteraGPT/logs/stream_gpt.log")
 fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 _logger.addHandler(fh)
 
-_RE_RESPONSE_REPR = re.compile(r"Response\w+Item\([^)]*\)")
 
 
-def sanitize_model_output(text):
-    """Remove service objects that may leak from the SDK before sending to users."""
+def ask_gpt(
+    messages: list[dict],
+    *,
+    max_tokens: int | None = None,
+    tools: list[dict] | None = None,
+    on_chunk: Callable[[str], None] | None = None,
+) -> str:
+    """Stream a response from the Responses API and optionally emit partial chunks."""
 
-    if not isinstance(text, str):
-        return "" if text is None else str(text)
+    kwargs: dict = {
+        "model": CHAT_MODEL,
+        "input": prepare_responses_input(messages),
+        "response_format": {"type": "text"},
+        "stream": True,
+    }
+    if max_tokens is not None:
+        kwargs["max_output_tokens"] = max_tokens
+    if tools:
+        kwargs["tools"] = tools
 
-    return _RE_RESPONSE_REPR.sub("", text).strip()
+    stream = client.responses.create(**kwargs)
+    collected: list[str] = []
+    final_response = None
 
+    try:
+        for event in stream:
+            event_type = getattr(event, "type", "")
+            if event_type in {"response.output_text.delta", "response.message.delta"}:
+                chunk = coerce_content_to_text(getattr(event, "delta", None))
+                if chunk:
+                    collected.append(chunk)
+                    if on_chunk is not None:
+                        try:
+                            on_chunk(chunk)
+                        except Exception:
+                            pass
+            elif event_type == "response.error":
+                error = getattr(event, "error", None)
+                message = getattr(error, "message", None) or str(error)
+                raise RuntimeError(message)
+            elif event_type == "response.completed":
+                with suppress(Exception):
+                    final_response = stream.get_final_response()
 
-def _sanitize_for_telegram(text: str) -> str:
-    """Удаляет скрытые блоки (<think>) и экранирует HTML, чтобы Telegram не падал."""
+        if final_response is None:
+            with suppress(Exception):
+                final_response = stream.get_final_response()
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            with suppress(Exception):
+                close()
 
-    sanitized = sanitize_model_output(text)
-    if not sanitized:
-        return ""
-
-    cleaned = sanitized.replace("<think>", "").replace("</think>", "")
-    # Иногда reasoning блоки приходят в виде тэгов <reasoning></reasoning>
-    cleaned = cleaned.replace("<reasoning>", "").replace("</reasoning>", "")
-    # Удаляем нулевые символы, которые Telegram не любит
-    cleaned = cleaned.replace("\x00", "")
-    return telebot_util.escape(cleaned)
-
+    text = ""
+    if final_response is not None:
+        text = extract_response_text(final_response) or ""
+    if not text:
+        text = "".join(collected)
+    return text.strip()
 
 def _get_chat_lock(chat_id: int) -> Lock:
     """Возвращает (и создаёт при необходимости) Lock для конкретного чата."""
@@ -536,10 +536,8 @@ def _get_chat_lock(chat_id: int) -> Lock:
 
 
 def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> None:
-    """
-    Отправляет запрос в GPT‑5 mini без стрима: сразу получаем полный ответ.
-    Поддерживает кэширование ответов для одинаковых запросов.
-    """
+    """Stream a GPT-5 mini answer and progressively edit the Telegram message."""
+
     lock = _get_chat_lock(chat_id)
     if not lock.acquire(blocking=False):
         with suppress(Exception):
@@ -549,25 +547,29 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
     try:
         _ensure_history_cached(chat_id)
 
-        # Добавляем новое сообщение пользователя в историю
         history = user_histories.setdefault(chat_id, [])
         history.append({"role": "user", "content": user_text})
 
-        # Формируем контекст для GPT
+        language = get_language(chat_id)
+        mode_prompt = MODES[mode_key]["system_prompt"]
+        system_prompt = (
+            f"{SYSTEM_PROMPT}\n\n{mode_prompt}\n\nОтвечай на языке пользователя: {language}."
+        )
         context_history = history[-CONTEXT_MESSAGES:]
-        system_prompt = MODES[mode_key]["system_prompt"]
         messages = [{"role": "system", "content": system_prompt}] + context_history
 
-        # Проверяем кэш
         cache_key = (chat_id, user_text.strip().lower())
         cached = response_cache.get(cache_key)
         if cached:
             show_typing(chat_id)
             draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
             msg_id = draft.message_id
-            safe_cached = _sanitize_for_telegram(cached)
-            bot.edit_message_text(safe_cached or cached, chat_id, msg_id, parse_mode="HTML")
-            # Сохраняем ответ в историю
+            safe_cached = sanitize_for_telegram(cached)
+            try:
+                bot.edit_message_text(safe_cached or cached, chat_id, msg_id, parse_mode="HTML")
+            except Exception:
+                with suppress(Exception):
+                    bot.send_message(chat_id, safe_cached or cached, parse_mode="HTML")
             history.append({"role": "assistant", "content": cached})
             trimmed = history[-HISTORY_LIMIT:]
             user_histories[chat_id] = trimmed
@@ -575,35 +577,88 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
                 save_history(chat_id, trimmed)
             return
 
-        # Показываем индикатор и черновик
         show_typing(chat_id)
         draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
         msg_id = draft.message_id
 
-        # Выполняем обычный запрос к GPT без лимита токенов
-        try:
-            final_text = ask_gpt(messages)
-            final_text = (final_text or "").strip()
-        except Exception:
-            final_text = ""
+        partial_chunks: list[str] = []
+        start_time = time.monotonic()
+        last_edit = start_time
+        first_chunk_sent = False
+        message_failed = False
 
-        # Обрабатываем текст и проверяем пустой ответ
+        def handle_chunk(chunk: str) -> None:
+            nonlocal last_edit, first_chunk_sent, message_failed
+            if not chunk:
+                return
+
+            partial_chunks.append(chunk)
+            aggregated_raw = "".join(partial_chunks)
+            safe_partial = sanitize_for_telegram(aggregated_raw)
+            if not safe_partial:
+                return
+
+            now = time.monotonic()
+            should_update = False
+            if not first_chunk_sent:
+                cleaned_length = len(sanitize_model_output(aggregated_raw))
+                if cleaned_length >= FIRST_CHUNK_TOKENS or now - start_time >= EDIT_INTERVAL:
+                    should_update = True
+            elif now - last_edit >= EDIT_INTERVAL:
+                should_update = True
+
+            if should_update and not message_failed:
+                try:
+                    bot.edit_message_text(safe_partial, chat_id, msg_id, parse_mode="HTML")
+                    first_chunk_sent = True
+                    last_edit = now
+                except Exception:
+                    message_failed = True
+
+        error_occurred = False
+        try:
+            final_text = ask_gpt(messages, on_chunk=handle_chunk)
+        except Exception:
+            error_occurred = True
+            final_text = ""
+            _logger.exception("Failed to stream response")
+
+        aggregated_raw = "".join(partial_chunks)
+
+        if error_occurred:
+            if history and history[-1].get("role") == "user" and history[-1].get("content") == user_text:
+                history.pop()
+            failure_text = "⚠️ Не удалось получить ответ. Попробуйте ещё раз позже."
+            safe_failure = sanitize_for_telegram(failure_text)
+            if not message_failed:
+                try:
+                    bot.edit_message_text(safe_failure or failure_text, chat_id, msg_id, parse_mode="HTML")
+                except Exception:
+                    message_failed = True
+            if message_failed:
+                with suppress(Exception):
+                    bot.send_message(chat_id, safe_failure or failure_text, parse_mode="HTML")
+            return
+
+        if not final_text:
+            final_text = aggregated_raw
+
         final_text = sanitize_model_output(final_text)
         if not final_text:
             final_text = "⚠️ Ответ пуст."
 
-        # Сохраняем в кэш
         response_cache[cache_key] = final_text
 
-        # Отправляем финальный ответ
-        safe_text = _sanitize_for_telegram(final_text)
-        try:
-            bot.edit_message_text(safe_text or final_text, chat_id, msg_id, parse_mode="HTML")
-        except Exception:
+        safe_text = sanitize_for_telegram(final_text)
+        if not message_failed:
+            try:
+                bot.edit_message_text(safe_text or final_text, chat_id, msg_id, parse_mode="HTML")
+            except Exception:
+                message_failed = True
+        if message_failed:
             with suppress(Exception):
                 bot.send_message(chat_id, safe_text or final_text, parse_mode="HTML")
 
-        # Добавляем ответ в историю и сохраняем
         history.append({"role": "assistant", "content": final_text})
         trimmed_history = history[-HISTORY_LIMIT:]
         user_histories[chat_id] = trimmed_history
@@ -891,13 +946,13 @@ def who_are_you(m):
         return
 
     text = (
-        "Я работаю на базе GPT-5, новейшей модели. "
-        "GPT-5 обеспечивает более глубокую проработку диалога, высокую точность "
+        "Я работаю на базе GPT-5 Mini, новейшей компактной модели. "
+        "GPT-5 Mini обеспечивает глубокую проработку диалога, высокую точность "
         "и адаптивность, опирается на академические знания и современные исследования. "
         "Модель поддерживает разные стили общения: Короткий друг, Философ и Академический. "
         "Она разработана для того, чтобы вести живой разговор, давать содержательные ответы "
         "и предлагать практические рекомендации на основе психологии. "
-        "Использование GPT-5 позволяет создавать осмысленные и развернутые ответы, "
+        "Использование GPT-5 Mini позволяет создавать осмысленные и развернутые ответы, "
         "которые помогают в самоанализе и принятии решений."
     )
     bot.send_message(m.chat.id, text, reply_markup=main_menu())
