@@ -53,8 +53,6 @@ from settings import (
     HISTORY_LIMIT,
     is_owner,
     PAY_URL_HARMONY,
-    PAY_URL_REFLECTION,
-    PAY_URL_TRAVEL,
     SYSTEM_PROMPT,
 )
 from openai_adapter import extract_response_text, prepare_responses_input
@@ -167,13 +165,14 @@ def subscription_check_keyboard() -> types.InlineKeyboardMarkup:
 
 def pay_inline(chat_id: int) -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup(row_width=1)
-    for key, tariff in TARIFFS.items():
-        url = start_payment(chat_id, key)
-        kb.add(
-            types.InlineKeyboardButton(
-                f"{tariff['name']} • {tariff['price']} ₽", url=url
-            )
+    tariff_key = "basic"
+    tariff = TARIFFS[tariff_key]
+    url = start_payment(chat_id, tariff_key)
+    kb.add(
+        types.InlineKeyboardButton(
+            f"{tariff['name']} • {tariff['price']} ₽", url=url
         )
+    )
     return kb
 
 
@@ -331,8 +330,6 @@ def main_menu():
 def pay_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
     kb.add("Basic • 299 ₽")
-    kb.add("Pro • 999 ₽")
-    kb.add("Ultra • 1999 ₽")
     kb.add("⬅️ Назад")
     return kb
 
@@ -754,23 +751,12 @@ def pay_button(m):
     )
 
 
-@bot.message_handler(
-    func=lambda msg: msg.text in [
-        "Basic • 299 ₽",
-        "Pro • 999 ₽",
-        "Ultra • 1999 ₽",
-    ]
-)
+@bot.message_handler(func=lambda msg: msg.text == "Basic • 299 ₽")
 def tariffs(m):
     if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
         return
 
-    if m.text.startswith("Basic"):
-        url = PAY_URL_HARMONY
-    elif m.text.startswith("Pro"):
-        url = PAY_URL_REFLECTION
-    else:
-        url = PAY_URL_TRAVEL
+    url = PAY_URL_HARMONY
 
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("Перейти к оплате 💳", url=url))
@@ -819,17 +805,18 @@ def show_tariffs(m):
     if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
         return
 
-    text = "📜 <b>Выбери свой путь</b>\n\n"
-    for key, t in TARIFFS.items():
-        text += f"{t['name']} — {t['price']} ₽/мес.\n{t['description']}\n\n"
+    tariff = TARIFFS["basic"]
+    text = (
+        "📜 <b>SynteraGPT Basic</b>\n\n"
+        f"{tariff['name']} — {tariff['price']} ₽/мес.\n{tariff['description']}"
+    )
 
     kb = types.InlineKeyboardMarkup(row_width=1)
-    for key, t in TARIFFS.items():
-        kb.add(
-            types.InlineKeyboardButton(
-                f"{t['name']} • {t['price']} ₽", url=t["pay_url"]
-            )
+    kb.add(
+        types.InlineKeyboardButton(
+            f"{tariff['name']} • {tariff['price']} ₽", url=tariff["pay_url"]
         )
+    )
 
     send_and_store(m.chat.id, text, reply_markup=kb)
 
@@ -843,7 +830,7 @@ def activate(m):
     if len(parts) < 2:
         send_and_store(
             m.chat.id,
-            "❌ Укажи тариф: basic, pro или ultra",
+            "❌ Укажи тариф: basic",
         )
         return
 
@@ -865,7 +852,12 @@ def hint(m):
         return
 
     tariff_key, step = parts[1], int(parts[2])
-    hint_text = get_hint(TARIFFS[tariff_key]["category"], step)
+    tariff = TARIFFS.get(tariff_key)
+    if not tariff:
+        send_and_store(m.chat.id, "❌ Такой тариф недоступен")
+        return
+
+    hint_text = get_hint(tariff["category"], step)
     send_and_store(m.chat.id, f"🔮 Подсказка: {hint_text}")
 
 @bot.message_handler(
