@@ -95,7 +95,12 @@ response_cache: dict[tuple[int, str], str] = {}
 
 # --- Подтверждение подписки ---
 verified_users: Set[int] = set()
+# Timestamp of the last reminder we sent to the user about subscribing.
+# Helps us avoid spamming one reminder per message, while still making
+# sure every message receives a response (users reported that the bot
+# was silent when they weren't verified yet).
 pending_verification: Set[int] = set()
+last_subscription_reminders: dict[int, float] = {}
 
 
 def _ensure_history_cached(chat_id: int) -> None:
@@ -161,8 +166,15 @@ def send_subscription_prompt(chat_id: int, user_id: int) -> None:
 
 
 def send_subscription_reminder(chat_id: int, user_id: int, *, force: bool = False) -> None:
-    if not force and user_id in pending_verification:
-        return
+    if not force:
+        last_prompt = last_subscription_reminders.get(user_id)
+        now = time.monotonic()
+        if last_prompt is not None and now - last_prompt < 60:
+            pending_verification.add(user_id)
+            return
+        last_subscription_reminders[user_id] = now
+    else:
+        last_subscription_reminders[user_id] = time.monotonic()
 
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("Подписаться на канал", url=CHANNEL_URL))
