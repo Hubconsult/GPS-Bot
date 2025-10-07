@@ -29,7 +29,6 @@ def ask_gpt_web(query: str) -> str:
     response = client.responses.create(
         model=CHAT_MODEL,
         input=prepare_responses_input(messages),
-        response_format={"type": "text"},
         tools=[{"type": "web_search"}],
     )
     text = extract_response_text(response)
