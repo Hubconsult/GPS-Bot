@@ -24,6 +24,7 @@ from telebot import types
 
 # Tariff configuration and state tracking
 from tariffs import (
+    BASIC_TARIFF_KEY,
     TARIFFS,
     TARIFF_MODES,
     user_tariffs,
@@ -165,7 +166,7 @@ def subscription_check_keyboard() -> types.InlineKeyboardMarkup:
 
 def pay_inline(chat_id: int) -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup(row_width=1)
-    tariff_key = "basic"
+    tariff_key = BASIC_TARIFF_KEY
     tariff = TARIFFS[tariff_key]
     url = start_payment(chat_id, tariff_key)
     kb.add(
@@ -329,7 +330,8 @@ def main_menu():
 
 def pay_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    kb.add("Basic • 299 ₽")
+    tariff = TARIFFS[BASIC_TARIFF_KEY]
+    kb.add(f"{tariff['name']} • {tariff['price']} ₽")
     kb.add("⬅️ Назад")
     return kb
 
@@ -805,7 +807,7 @@ def show_tariffs(m):
     if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
         return
 
-    tariff = TARIFFS["basic"]
+    tariff = TARIFFS[BASIC_TARIFF_KEY]
     text = (
         "📜 <b>SynteraGPT Basic</b>\n\n"
         f"{tariff['name']} — {tariff['price']} ₽/мес.\n{tariff['description']}"
@@ -827,15 +829,11 @@ def activate(m):
         return
 
     parts = m.text.split()
-    if len(parts) < 2:
-        send_and_store(
-            m.chat.id,
-            "❌ Укажи тариф: basic",
-        )
-        return
-
-    tariff_key = parts[1]
+    tariff_key = parts[1].lower() if len(parts) >= 2 else BASIC_TARIFF_KEY
     _reward, msg = activate_tariff(m.chat.id, tariff_key)
+    if not msg:
+        send_and_store(m.chat.id, "❌ Не удалось активировать тариф")
+        return
     send_and_store(m.chat.id, msg)
 
 # --- Подсказка ---
@@ -845,13 +843,25 @@ def hint(m):
         return
 
     parts = m.text.split()
-    if len(parts) < 3:
+    if len(parts) < 2:
         send_and_store(
-            m.chat.id, "❌ Укажи тариф и шаг подсказки: /hint basic 0"
+            m.chat.id, "❌ Укажи шаг подсказки: /hint 0"
         )
         return
 
-    tariff_key, step = parts[1], int(parts[2])
+    if len(parts) == 2:
+        tariff_key = BASIC_TARIFF_KEY
+        step_part = parts[1]
+    else:
+        tariff_key = parts[1].lower()
+        step_part = parts[2]
+
+    try:
+        step = int(step_part)
+    except ValueError:
+        send_and_store(m.chat.id, "❌ Шаг подсказки должен быть числом")
+        return
+
     tariff = TARIFFS.get(tariff_key)
     if not tariff:
         send_and_store(m.chat.id, "❌ Такой тариф недоступен")

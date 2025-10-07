@@ -17,8 +17,10 @@ user_tariffs = {}  # {chat_id: {"tariff": str, "start": date, "end": date}}
 
 
 # --- Tariff definitions ---
+
+BASIC_TARIFF_KEY = "basic"
 TARIFFS = {
-    "basic": {
+    BASIC_TARIFF_KEY: {
         "name": "Basic",
         "price": 299,
         "description": "SynteraGPT Basic — короткие ответы и базовые функции без выхода в интернет.",
@@ -37,7 +39,7 @@ Configuration.secret_key = YOOKASSA_API_KEY
 
 # --- Mapping tariffs to dialogue modes ---
 TARIFF_MODES = {
-    "basic": "short_friend",  # 299₽ — короткие поддерживающие ответы
+    BASIC_TARIFF_KEY: "short_friend",  # 299₽ — короткие поддерживающие ответы
 }
 
 

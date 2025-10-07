@@ -1,5 +1,5 @@
 # bot_utils.py
-from tariffs import TARIFFS
+from tariffs import BASIC_TARIFF_KEY, TARIFFS
 from telebot import types
 
 from settings import bot
@@ -11,7 +11,7 @@ def offer_renew(bot, chat_id, tariff_key=None):
         "Продолжай общение с SynteraGPT — впереди новые инструменты и открытия."
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
-    tariff_name = tariff_key if tariff_key in TARIFFS else "basic"
+    tariff_name = tariff_key if tariff_key in TARIFFS else BASIC_TARIFF_KEY
     tariff = TARIFFS[tariff_name]
     kb.add(
         types.InlineKeyboardButton(
