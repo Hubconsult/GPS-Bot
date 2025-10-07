@@ -21,7 +21,7 @@ from settings import (
     YOOKASSA_API_KEY,
     YOOKASSA_SHOP_ID,
 )
-from storage import DB_PATH, reset_used_free
+from storage import DB_PATH
 
 
 # --- Storage for active subscriptions ---
@@ -129,7 +129,6 @@ def activate_tariff(chat_id: int, tariff_key: str):
         (chat_id,),
     )
     c.execute("UPDATE users SET has_tariff=1 WHERE chat_id=?", (chat_id,))
-    reset_used_free(chat_id)  # сбрасываем счётчик бесплатных сообщений
     conn.commit()
     conn.close()
 

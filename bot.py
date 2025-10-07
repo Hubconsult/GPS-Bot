@@ -10,12 +10,9 @@ from typing import Set
 
 from storage import (
     init_db,
-    get_user_usage,
-    increment_used,
     clear_history,
     iter_history_chat_ids,
     load_history,
-    reset_used_free,
     save_history,
     r,
     TTL,
@@ -49,7 +46,6 @@ from settings import (
     bot,
     client,
     CHAT_MODEL,
-    FREE_LIMIT,
     HISTORY_LIMIT,
     is_owner,
     PAY_URL_HARMONY,
@@ -387,33 +383,16 @@ def check_limit(chat_id) -> bool:
     if is_owner(chat_id):
         return True
 
-    if not ensure_verified(chat_id, chat_id, force_check=True):
-        return False
-
-    used, has_tariff = get_user_usage(chat_id)
-    if has_tariff == 0 and used >= FREE_LIMIT:
-        bot.send_message(
-            chat_id,
-            "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\nВыберите тариф 👇",
-            reply_markup=pay_inline(chat_id),
-        )
-        return False
-    return True
+    return ensure_verified(chat_id, chat_id, force_check=True)
 
 # --- Helpers ---
 
 def increment_counter(chat_id) -> None:
     if is_owner(chat_id):
-        reset_used_free(chat_id)
         return
 
-    used, has_tariff = get_user_usage(chat_id)
-    if has_tariff:
-        if used:
-            reset_used_free(chat_id)
-        return
-
-    increment_used(chat_id)
+    # Квоты отключены: счётчик сообщений больше не ведём для бесплатных пользователей.
+    return
 
 # --- Получение режима из активного тарифа ---
 
