@@ -38,7 +38,6 @@ def _generate_post_text(mode: str = "long") -> str:
         resp = openai_client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "text"},
             max_completion_tokens=400,
         )
 

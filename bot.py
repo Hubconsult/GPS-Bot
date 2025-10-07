@@ -490,7 +490,6 @@ def ask_gpt(
     kwargs: dict = {
         "model": CHAT_MODEL,
         "input": prepare_responses_input(messages),
-        "response_format": {"type": "text"},
         "stream": True,
     }
     if max_tokens is not None:
