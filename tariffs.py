@@ -7,9 +7,27 @@ import sqlite3
 
 from yookassa import Configuration, Payment
 
+ codex/refactor-tariffs-to-keep-only-basic-plan
 from rewards import ICON_REWARDS, send_reward
 from settings import PAY_URL_HARMONY, YOOKASSA_API_KEY, YOOKASSA_SHOP_ID
 from storage import DB_PATH, reset_used_free
+=======
+from rewards import (
+    AVATAR_REWARDS,
+    BACKGROUND_REWARDS,
+    CARD_REWARDS,
+    ICON_REWARDS,
+    send_reward,
+)
+from settings import (
+    PAY_URL_HARMONY,
+    PAY_URL_REFLECTION,
+    PAY_URL_TRAVEL,
+    YOOKASSA_API_KEY,
+    YOOKASSA_SHOP_ID,
+)
+from storage import DB_PATH
+ main
 
 
 # --- Storage for active subscriptions ---
@@ -109,7 +127,6 @@ def activate_tariff(chat_id: int, tariff_key: str):
         (chat_id,),
     )
     c.execute("UPDATE users SET has_tariff=1 WHERE chat_id=?", (chat_id,))
-    reset_used_free(chat_id)  # сбрасываем счётчик бесплатных сообщений
     conn.commit()
     conn.close()
 

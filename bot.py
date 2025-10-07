@@ -10,12 +10,9 @@ from typing import Set
 
 from storage import (
     init_db,
-    get_user_usage,
-    increment_used,
     clear_history,
     iter_history_chat_ids,
     load_history,
-    reset_used_free,
     save_history,
     r,
     TTL,
@@ -50,7 +47,6 @@ from settings import (
     bot,
     client,
     CHAT_MODEL,
-    FREE_LIMIT,
     HISTORY_LIMIT,
     is_owner,
     PAY_URL_HARMONY,
@@ -124,10 +120,6 @@ user_moods = {}
 # Хранилище истории сообщений пользователей (локальный кэш)
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 user_messages = {}  # {chat_id: [message_id, ...]}
-
-# бесплатный пробник по режимам
-user_test_modes = {}  # {chat_id: str}
-user_test_mode_usage = {}  # {chat_id: {"short_friend": int, "philosopher": int, "academic": int}}
 
 # кеш выбранного языка (для офлайн-режима, если Redis недоступен)
 _language_cache: dict[int, str] = {}
@@ -386,33 +378,16 @@ def check_limit(chat_id) -> bool:
     if is_owner(chat_id):
         return True
 
-    if not ensure_verified(chat_id, chat_id, force_check=True):
-        return False
-
-    used, has_tariff = get_user_usage(chat_id)
-    if has_tariff == 0 and used >= FREE_LIMIT:
-        bot.send_message(
-            chat_id,
-            "🚫 <b>Лимит бесплатных диалогов исчерпан.</b>\nВыберите тариф 👇",
-            reply_markup=pay_inline(chat_id),
-        )
-        return False
-    return True
+    return ensure_verified(chat_id, chat_id, force_check=True)
 
 # --- Helpers ---
 
 def increment_counter(chat_id) -> None:
     if is_owner(chat_id):
-        reset_used_free(chat_id)
         return
 
-    used, has_tariff = get_user_usage(chat_id)
-    if has_tariff:
-        if used:
-            reset_used_free(chat_id)
-        return
-
-    increment_used(chat_id)
+    # Квоты отключены: счётчик сообщений больше не ведём для бесплатных пользователей.
+    return
 
 # --- Получение режима из активного тарифа ---
 
@@ -467,13 +442,6 @@ MODES = {
             "Не вставляй ссылки на внешние источники и не отказывайся от ответа."
         ),
     },
-}
-
-TEST_BUTTONS = ["Друг", "Философ", "Академик"]
-TEST_BUTTON_CONFIG = {
-    "Друг": ("🎭", "short_friend"),
-    "Философ": ("📚", "philosopher"),
-    "Академик": ("🧭", "academic"),
 }
 
 # --- GPT-5 Mini ответ с потоковой выдачей ---
@@ -688,7 +656,6 @@ def cmd_clear(msg):
     clear_history(msg.chat.id)
     user_histories.pop(msg.chat.id, None)
     user_messages.pop(msg.chat.id, None)
-    user_test_modes.pop(msg.chat.id, None)
 
     send_and_store(msg.chat.id, "🧹 История диалога очищена", reply_markup=main_menu())
 
@@ -928,55 +895,6 @@ def background_checker():
         counter += 1
         time.sleep(86400)  # раз в сутки
 
-# --- Тестовые режимы ---
-@bot.message_handler(commands=["testmodes"])
-def test_modes_menu(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    for title in TEST_BUTTONS:
-        emoji, mode_key = TEST_BUTTON_CONFIG[title]
-        kb.add(
-            types.InlineKeyboardButton(
-                f"{emoji} {title} (2 сообщения)",
-                callback_data=f"test_{mode_key}",
-            )
-        )
-    bot.send_message(
-        m.chat.id,
-        "🔍 Выбери режим, который хочешь попробовать:\nКаждый доступен по 2 бесплатных сообщения.",
-        reply_markup=kb
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("test_"))
-def run_test_mode(call):
-    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
-        bot.answer_callback_query(call.id)
-        return
-
-    chat_id = call.message.chat.id
-    mode_key = call.data.replace("test_", "")
-    if chat_id not in user_test_mode_usage:
-        user_test_mode_usage[chat_id] = {
-            "short_friend": 0,
-            "philosopher": 0,
-            "academic": 0,
-        }
-
-    if user_test_mode_usage[chat_id][mode_key] >= 2:
-        bot.answer_callback_query(call.id, "❌ Лимит 2 сообщений в этом режиме исчерпан.")
-        return
-
-    bot.answer_callback_query(call.id, f"✅ Пробный режим {MODES[mode_key]['name']} активирован!")
-    bot.send_message(chat_id, f"Спроси меня что-то в режиме <b>{MODES[mode_key]['name']}</b> 👇")
-
-    # фиксируем, что активный тестовый режим запущен, но не тратим попытку
-    clear_history(chat_id)
-    user_histories[chat_id] = []
-    user_test_modes[chat_id] = mode_key
-
 # --- fallback — если текст не совпал с меню, отправляем в GPT ---
 @bot.message_handler(
     func=lambda msg: bool(getattr(msg, "text", "")) and not msg.text.startswith("/")
@@ -984,18 +902,6 @@ def run_test_mode(call):
 def fallback(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
-    # обработка активного тестового режима
-    mode_key = user_test_modes.get(m.chat.id)
-    if mode_key and mode_key in user_test_mode_usage.get(m.chat.id, {}):
-        if user_test_mode_usage[m.chat.id][mode_key] < 2:
-            stream_gpt_answer(m.chat.id, m.text, mode_key)
-            user_test_mode_usage[m.chat.id][mode_key] += 1
-            if user_test_mode_usage[m.chat.id][mode_key] >= 2:
-                user_test_modes.pop(m.chat.id, None)
-            return
-        else:
-            user_test_modes.pop(m.chat.id, None)
-
     mode = get_user_mode(m.chat.id)
     stream_gpt_answer(m.chat.id, m.text, mode)
 

@@ -13,7 +13,6 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-FREE_LIMIT = int(os.getenv("FREE_LIMIT", "10"))
 PAY_URL_HARMONY = os.getenv("PAY_URL_HARMONY")
 PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION")
 PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL")
@@ -77,7 +76,6 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 __all__ = [
     "bot",
     "client",
-    "FREE_LIMIT",
     "PAY_URL_HARMONY",
     "PAY_URL_REFLECTION",
     "PAY_URL_TRAVEL",

@@ -11,7 +11,6 @@ Telegram bot "SynteraGPT" for intelligent assistance with GPT-5, media analysis,
 2. Copy `.env.example` to `.env` and set real values for:
    - `BOT_TOKEN` – Telegram bot token (required)
    - `OPENAI_API_KEY` – OpenAI API key (required)
-   - `FREE_LIMIT` – number of free interactions (default 10)
    - `PAY_URL_HARMONY` – payment link for the "Basic" tariff (required)
    - `PAY_URL_REFLECTION` – payment link for the "Pro" tariff (required)
    - `PAY_URL_TRAVEL` – payment link for the "Ultra" tariff (required)
