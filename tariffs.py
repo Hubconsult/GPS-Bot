@@ -15,6 +15,18 @@ from storage import DB_PATH, reset_used_free
 # --- Storage for active subscriptions ---
 user_tariffs = {}  # {chat_id: {"tariff": str, "start": date, "end": date}}
 
+# Explicit re-export list helps static analyzers and prevents merge conflict
+# markers from sneaking into the module when resolving future edits.
+__all__ = [
+    "BASIC_TARIFF_KEY",
+    "TARIFFS",
+    "TARIFF_MODES",
+    "user_tariffs",
+    "start_payment",
+    "activate_tariff",
+    "check_expiring_tariffs",
+]
+
 
 # --- Tariff definitions ---
 
