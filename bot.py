@@ -2,6 +2,8 @@ import threading
 import time
 import logging
 import datetime
+import sys
+import traceback
 from threading import Lock
 from contextlib import suppress
 from pathlib import Path
@@ -62,6 +64,25 @@ import auto_post  # noqa: F401 - регистрация команды /post
 
 # Initialize the SQLite storage before handling any requests
 init_db()
+
+# --- Логирование с записью в файл ---
+LOG_FILE = Path(__file__).resolve().parent / "gpsbot.log"
+
+logging.basicConfig(
+    filename=str(LOG_FILE),
+    level=logging.ERROR,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+
+
+def log_exception(exc: Exception) -> None:
+    """Log unexpected polling exceptions both to stdout and a file."""
+    tb = traceback.format_exc()
+    msg = f"CRITICAL: polling crashed: {exc}\n{tb}"
+    print(msg)
+    logging.error(msg)
+    sys.stdout.flush()
+
 
 # --- Константы подписки ---
 CHANNEL_USERNAME = "@SynteraAI"
@@ -993,15 +1014,16 @@ if __name__ == "__main__":
     start_payments_worker()
     threading.Thread(target=background_checker, daemon=True).start()
 
-    try:
-        bot.infinity_polling(
-            timeout=60,
-            long_polling_timeout=60,
-            skip_pending=True,
-        )
-    except Exception as e:
-        print("CRITICAL: polling crashed:", e)
-        raise
+    while True:
+        try:
+            bot.polling(
+                none_stop=True,
+                timeout=60,
+                long_polling_timeout=60,
+                skip_pending=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - хотим логировать любые сбои
+            log_exception(exc)
 
 
 
