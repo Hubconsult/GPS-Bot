@@ -40,6 +40,8 @@ from media import multimedia_menu
 # Register web search handlers (command /web)
 import handlers.web  # noqa: F401 - регистрация хендлеров через импорт
 
+from internet import ask_gpt_web, should_escalate_to_web, should_prefer_web
+
 from bot_utils import show_typing
 
 # --- Конфиг: значения централизованы в settings.py ---
@@ -546,8 +548,15 @@ def _get_chat_lock(chat_id: int) -> Lock:
     return lock
 
 
-def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_friend") -> None:
-    """Stream a GPT-5 mini answer and progressively edit the Telegram message."""
+def stream_gpt_answer(
+    chat_id: int,
+    user_text: str,
+    mode_key: str = "short_friend",
+    *,
+    force_web: bool = False,
+    allow_web_fallback: bool = False,
+) -> None:
+    """Stream a GPT-5 mini answer and optionally fall back to web search."""
 
     lock = _get_chat_lock(chat_id)
     if not lock.acquire(blocking=False):
@@ -570,7 +579,8 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         messages = [{"role": "system", "content": system_prompt}] + context_history
 
         cache_key = (chat_id, user_text.strip().lower())
-        cached = response_cache.get(cache_key)
+        use_cache = not force_web
+        cached = response_cache.get(cache_key) if use_cache else None
         if cached:
             show_typing(chat_id)
             draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
@@ -591,12 +601,49 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
         show_typing(chat_id)
         draft = bot.send_message(chat_id, "…", reply_markup=main_menu())
         msg_id = draft.message_id
+        message_failed = False
+
+        if force_web:
+            try:
+                web_raw = ask_gpt_web(user_text).strip()
+            except Exception:
+                if history and history[-1].get("role") == "user" and history[-1].get("content") == user_text:
+                    history.pop()
+                failure_text = "⚠️ Не удалось получить ответ. Попробуйте ещё раз позже."
+                safe_failure = sanitize_for_telegram(failure_text)
+                try:
+                    bot.edit_message_text(safe_failure or failure_text, chat_id, msg_id, parse_mode="HTML")
+                except Exception:
+                    with suppress(Exception):
+                        bot.send_message(chat_id, safe_failure or failure_text, parse_mode="HTML")
+                return
+
+            final_text = sanitize_model_output(web_raw)
+            if not final_text:
+                final_text = "😔 Не удалось найти информацию. Попробуй уточнить запрос."
+
+            safe_text = sanitize_for_telegram(final_text)
+            try:
+                bot.edit_message_text(safe_text or final_text, chat_id, msg_id, parse_mode="HTML")
+            except Exception:
+                with suppress(Exception):
+                    bot.send_message(chat_id, safe_text or final_text, parse_mode="HTML")
+
+            history.append({"role": "assistant", "content": final_text})
+            trimmed_history = history[-HISTORY_LIMIT:]
+            user_histories[chat_id] = trimmed_history
+            try:
+                save_history(chat_id, trimmed_history)
+            except Exception:
+                _logger.exception("Failed to persist chat history")
+
+            response_cache[cache_key] = final_text
+            return
 
         partial_chunks: list[str] = []
         start_time = time.monotonic()
         last_edit = start_time
         first_chunk_sent = False
-        message_failed = False
 
         def handle_chunk(chunk: str) -> None:
             nonlocal last_edit, first_chunk_sent, message_failed
@@ -655,10 +702,32 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
             final_text = aggregated_raw
 
         final_text = sanitize_model_output(final_text)
+
+        used_web = False
+        if allow_web_fallback and should_escalate_to_web(user_text, final_text):
+            try:
+                if not message_failed:
+                    try:
+                        bot.edit_message_text(
+                            "🌐 Ищу свежие данные…", chat_id, msg_id, parse_mode="HTML"
+                        )
+                    except Exception:
+                        message_failed = True
+                web_raw = ask_gpt_web(user_text).strip()
+            except Exception:
+                web_raw = ""
+
+            if web_raw:
+                new_final = sanitize_model_output(web_raw)
+                if new_final:
+                    final_text = new_final
+                    used_web = True
+
         if not final_text:
             final_text = "⚠️ Ответ пуст."
 
-        response_cache[cache_key] = final_text
+        if used_web:
+            response_cache.pop(cache_key, None)
 
         safe_text = sanitize_for_telegram(final_text)
         if not message_failed:
@@ -677,6 +746,8 @@ def stream_gpt_answer(chat_id: int, user_text: str, mode_key: str = "short_frien
             save_history(chat_id, trimmed_history)
         except Exception:
             _logger.exception("Failed to persist chat history")
+
+        response_cache[cache_key] = final_text
 
     finally:
         with suppress(Exception):
@@ -1002,7 +1073,14 @@ def fallback(m):
     if not check_limit(m.chat.id): return
     increment_counter(m.chat.id)
     mode = get_user_mode(m.chat.id)
-    stream_gpt_answer(m.chat.id, m.text, mode)
+    prefer_web = should_prefer_web(m.text)
+    stream_gpt_answer(
+        m.chat.id,
+        m.text,
+        mode,
+        force_web=prefer_web,
+        allow_web_fallback=not prefer_web,
+    )
 
 # --- Запуск ---
 if __name__ == "__main__":
