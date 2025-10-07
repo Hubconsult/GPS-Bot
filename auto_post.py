@@ -6,7 +6,7 @@ import traceback
 
 from telebot import types
 
-from settings import bot, OWNER_ID, client as openai_client, CHAT_MODEL
+from settings import bot, OWNER_ID, client as openai_client, CHAT_MODEL, IMAGE_MODEL
 from openai_adapter import extract_response_text
 
 CHANNEL_ID = "@SynteraAI"
@@ -77,9 +77,10 @@ def _generate_post_image():
             "современные акценты искусственного интеллекта, высокое качество."
         )
         result = openai_client.images.generate(
-            model="gpt-image-1",
+            model=IMAGE_MODEL,
             prompt=img_prompt,
-            size="1280x720",
+            size="1792x1024",
+            quality="standard",
         )
         b64 = result.data[0].b64_json
         img_bytes = base64.b64decode(b64)

@@ -185,6 +185,7 @@ def media_text_router(m):
                 model=IMAGE_MODEL,
                 prompt=prompt,
                 size="1024x1024",
+                quality="standard",
             )
             b64 = result.data[0].b64_json
             img_bytes = base64.b64decode(b64)

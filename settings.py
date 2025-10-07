@@ -18,7 +18,7 @@ PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION")
 PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL")
 
 # --- Новые настройки моделей для мультимедиа ---
-IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1")     # генерация изображений
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "dall-e-3")        # генерация изображений (DALL·E 3 Standard)
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o-mini")   # анализ изображений (vision)
 
 # --- Модель для основного чата (GPT-5 mini) ---

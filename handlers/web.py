@@ -1,9 +1,18 @@
-from telebot import types
+from telebot import util as telebot_util
+
+from bot_utils import show_typing
+from internet import ask_gpt_web
 from settings import bot
-from internet.free_search import web_search_aggregate, format_sources
 
 # Состояние: ждём ли запрос от пользователя
 _web_mode = {}  # {chat_id: True/False}
+
+
+def _sanitize_answer(text: str) -> str:
+    cleaned = (text or "").replace("<think>", "").replace("</think>", "")
+    cleaned = cleaned.replace("<reasoning>", "").replace("</reasoning>", "")
+    cleaned = cleaned.replace("\x00", "")
+    return telebot_util.escape(cleaned)
 
 
 @bot.message_handler(commands=["web"])
@@ -19,25 +28,18 @@ def handle_web_query(m):
         bot.send_message(m.chat.id, "❌ Пустой запрос. Напиши вопрос или ключевые слова.")
         return
 
-    # 1. Ищем в интернете
-    sources = web_search_aggregate(query)
-
-    if not sources:
-        bot.send_message(m.chat.id, "😔 Не смог найти надёжные источники. Попробуй по-другому.")
+    show_typing(m.chat.id)
+    try:
+        answer = ask_gpt_web(query).strip()
+    except Exception:
+        bot.send_message(m.chat.id, "😔 Не удалось получить ответ. Попробуй ещё раз позже.")
         _web_mode.pop(m.chat.id, None)
         return
 
-    # 2. Формируем ответ
-    src_text = format_sources(sources)
-    answer_parts = [f"🌐 <b>Запрос:</b> {m.text}"]
+    if not answer:
+        bot.send_message(m.chat.id, "😔 Не удалось найти информацию. Попробуй уточнить запрос.")
+        _web_mode.pop(m.chat.id, None)
+        return
 
-    for s in sources:
-        if s.get("snippet"):
-            answer_parts.append(f"\n<b>{s['title']}</b>\n{s['snippet']}\n")
-
-    answer = "\n".join(answer_parts) + f"\n\n<b>Источники:</b>\n{src_text}"
-
-    bot.send_message(m.chat.id, answer, parse_mode="HTML", disable_web_page_preview=False)
-
-    # Сбрасываем режим
+    bot.send_message(m.chat.id, _sanitize_answer(answer), parse_mode="HTML")
     _web_mode.pop(m.chat.id, None)
