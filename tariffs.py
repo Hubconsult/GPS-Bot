@@ -7,6 +7,11 @@ import sqlite3
 
 from yookassa import Configuration, Payment
 
+ codex/refactor-tariffs-to-keep-only-basic-plan
+from rewards import ICON_REWARDS, send_reward
+from settings import PAY_URL_HARMONY, YOOKASSA_API_KEY, YOOKASSA_SHOP_ID
+from storage import DB_PATH, reset_used_free
+=======
 from rewards import (
     AVATAR_REWARDS,
     BACKGROUND_REWARDS,
@@ -22,15 +27,30 @@ from settings import (
     YOOKASSA_SHOP_ID,
 )
 from storage import DB_PATH
+ main
 
 
 # --- Storage for active subscriptions ---
 user_tariffs = {}  # {chat_id: {"tariff": str, "start": date, "end": date}}
 
+# Explicit re-export list helps static analyzers and prevents merge conflict
+# markers from sneaking into the module when resolving future edits.
+__all__ = [
+    "BASIC_TARIFF_KEY",
+    "TARIFFS",
+    "TARIFF_MODES",
+    "user_tariffs",
+    "start_payment",
+    "activate_tariff",
+    "check_expiring_tariffs",
+]
+
 
 # --- Tariff definitions ---
+
+BASIC_TARIFF_KEY = "basic"
 TARIFFS = {
-    "basic": {
+    BASIC_TARIFF_KEY: {
         "name": "Basic",
         "price": 299,
         "description": "SynteraGPT Basic — короткие ответы и базовые функции без выхода в интернет.",
@@ -38,27 +58,7 @@ TARIFFS = {
         "category": "basic",
         "pay_url": PAY_URL_HARMONY,
         "media_limits": {"photos": 1, "docs": 1, "analysis": 1},
-    },
-    "pro": {
-        "name": "Pro",
-        "price": 999,
-        "description": "SynteraGPT Pro — расширенные функции, мультимедиа и выход в интернет.",
-        "starter_reward": lambda chat_id: send_reward(chat_id, random.choice(AVATAR_REWARDS)),
-        "category": "pro",
-        "pay_url": PAY_URL_REFLECTION,
-        "media_limits": {"photos": 30, "docs": 10, "analysis": 20},
-    },
-    "ultra": {
-        "name": "Ultra",
-        "price": 1999,
-        "description": "SynteraGPT Ultra — полный доступ, максимум функций и расширенный интернет.",
-        "starter_reward": lambda chat_id: send_reward(
-            chat_id, random.choice(CARD_REWARDS + BACKGROUND_REWARDS)
-        ),
-        "category": "ultra",
-        "pay_url": PAY_URL_TRAVEL,
-        "media_limits": {"photos": 70, "docs": 20, "analysis": 30},
-    },
+    }
 }
 
 
@@ -69,9 +69,7 @@ Configuration.secret_key = YOOKASSA_API_KEY
 
 # --- Mapping tariffs to dialogue modes ---
 TARIFF_MODES = {
-    "basic": "short_friend",  # 299₽ — короткие поддерживающие ответы
-    "pro": "philosopher",     # 999₽ — углублённые беседы
-    "ultra": "academic",      # 1999₽ — максимум аналитики
+    BASIC_TARIFF_KEY: "short_friend",  # 299₽ — короткие поддерживающие ответы
 }
 
 
