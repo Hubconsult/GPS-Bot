@@ -279,9 +279,21 @@ def send_welcome_menu(chat_id: int) -> None:
 
 def main_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    kb.add("Чек-ин", "Стата", "Оплата")
-    kb.add("Медиа", "Информация", "Профиль")
-    kb.add("Очистить", "Lang 🌐")
+    kb.add(
+        types.KeyboardButton("Чек-ин"),
+        types.KeyboardButton("Стата"),
+        types.KeyboardButton("Оплата"),
+    )
+    kb.add(
+        types.KeyboardButton("Медиа"),
+        types.KeyboardButton("Информация"),
+        types.KeyboardButton("Профиль"),
+    )
+    kb.add(
+        types.KeyboardButton("Очистить"),
+        types.KeyboardButton("Lang 🌐"),
+        types.KeyboardButton("СРМ"),
+    )
     return kb
 
 
