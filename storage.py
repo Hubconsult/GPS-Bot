@@ -10,7 +10,15 @@ try:
 except ImportError:  # pragma: no cover - fallback for environments without redis
     redis = None
 
-from settings import OWNER_ID, bot, is_owner
+from settings import (
+    OWNER_ID,
+    REDIS_DB,
+    REDIS_HOST,
+    REDIS_PASSWORD,
+    REDIS_PORT,
+    bot,
+    is_owner,
+)
 
 TTL = 60 * 60 * 24 * 7  # 7 дней
 _REDIS_CHAT_SET_KEY = "chat:ids"
@@ -22,7 +30,15 @@ def _create_redis_client() -> "redis.Redis | None":
     if redis is None:
         return None
     try:
-        client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+        connection_kwargs = {
+            "host": REDIS_HOST,
+            "port": REDIS_PORT,
+            "db": REDIS_DB,
+            "decode_responses": True,
+        }
+        if REDIS_PASSWORD:
+            connection_kwargs["password"] = REDIS_PASSWORD
+        client = redis.Redis(**connection_kwargs)
         client.ping()
         return client
     except redis.RedisError:
