@@ -26,6 +26,7 @@ __all__ = [
     "start_payment",
     "activate_tariff",
     "check_expiring_tariffs",
+    "get_crm_access_code",
 ]
 
 
@@ -156,4 +157,24 @@ def _persist_crm_access(
     except Exception:
         # Redis is optional; ignore failures silently so activation succeeds.
         pass
+
+
+def get_crm_access_code(chat_id: int) -> Optional[str]:
+    """Return the CRM access code stored in Redis for the user, if available."""
+
+    if r is None:
+        return None
+
+    try:
+        value = r.get(f"user:{chat_id}:tariff")
+    except Exception:
+        return None
+
+    if value is None:
+        return None
+
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+
+    return str(value)
 
