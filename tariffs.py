@@ -4,30 +4,13 @@
 import datetime
 import random
 import sqlite3
+from typing import Optional
 
 from yookassa import Configuration, Payment
 
- codex/refactor-tariffs-to-keep-only-basic-plan
 from rewards import ICON_REWARDS, send_reward
-from settings import PAY_URL_HARMONY, YOOKASSA_API_KEY, YOOKASSA_SHOP_ID
-from storage import DB_PATH, reset_used_free
-=======
-from rewards import (
-    AVATAR_REWARDS,
-    BACKGROUND_REWARDS,
-    CARD_REWARDS,
-    ICON_REWARDS,
-    send_reward,
-)
-from settings import (
-    PAY_URL_HARMONY,
-    PAY_URL_REFLECTION,
-    PAY_URL_TRAVEL,
-    YOOKASSA_API_KEY,
-    YOOKASSA_SHOP_ID,
-)
+from settings import CRM_TARIFF_CODE, PAY_URL_HARMONY, YOOKASSA_API_KEY, YOOKASSA_SHOP_ID, r
 from storage import DB_PATH
- main
 
 
 # --- Storage for active subscriptions ---
@@ -58,6 +41,7 @@ TARIFFS = {
         "category": "basic",
         "pay_url": PAY_URL_HARMONY,
         "media_limits": {"photos": 1, "docs": 1, "analysis": 1},
+        "crm_code": CRM_TARIFF_CODE,
     }
 }
 
@@ -130,6 +114,9 @@ def activate_tariff(chat_id: int, tariff_key: str):
     conn.commit()
     conn.close()
 
+    crm_code = tariff.get("crm_code")
+    _persist_crm_access(chat_id, crm_code, start_date, end_date)
+
     message = (
         f"✨ Ты подключил тариф <b>{tariff['name']}</b>!\n\n"
         f"{tariff['description']}\n"
@@ -146,4 +133,27 @@ def check_expiring_tariffs(bot):
         if info["end"] - today == datetime.timedelta(days=3):
             from bot_utils import offer_renew
             offer_renew(bot, chat_id, info["tariff"])
+
+
+def _persist_crm_access(
+    chat_id: int,
+    crm_code: Optional[str],
+    start_date: datetime.date,
+    end_date: datetime.date,
+) -> None:
+    """Store CRM access code in Redis for the duration of the tariff."""
+
+    if not crm_code or r is None:
+        return
+
+    ttl_seconds = int((end_date - start_date).total_seconds())
+    if ttl_seconds <= 0:
+        ttl_seconds = 30 * 24 * 60 * 60  # fallback to 30 days
+
+    key = f"user:{chat_id}:tariff"
+    try:
+        r.setex(key, ttl_seconds, crm_code)
+    except Exception:
+        # Redis is optional; ignore failures silently so activation succeeds.
+        pass
 

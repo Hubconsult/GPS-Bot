@@ -8,6 +8,11 @@ import telebot
 from telebot import types
 from openai import OpenAI
 
+try:
+    import redis  # type: ignore
+except ImportError:  # pragma: no cover - redis is optional in some environments
+    redis = None
+
 # Загружаем переменные из .env рядом с файлом
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -16,6 +21,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PAY_URL_HARMONY = os.getenv("PAY_URL_HARMONY")
 PAY_URL_REFLECTION = os.getenv("PAY_URL_REFLECTION")
 PAY_URL_TRAVEL = os.getenv("PAY_URL_TRAVEL")
+
+# --- Redis configuration ---
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
+
+# --- CRM access code ---
+CRM_TARIFF_CODE = os.getenv("CRM_TARIFF_CODE", "Syntera GPT 5")
 
 # --- Новые настройки моделей для мультимедиа ---
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "dall-e-3")        # генерация изображений (DALL·E 3 Standard)
@@ -72,10 +86,35 @@ with suppress(Exception):
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+
+def _init_redis_client():
+    if redis is None:
+        return None
+
+    connection_kwargs = {
+        "host": REDIS_HOST,
+        "port": REDIS_PORT,
+        "db": REDIS_DB,
+        "decode_responses": True,
+    }
+    if REDIS_PASSWORD:
+        connection_kwargs["password"] = REDIS_PASSWORD
+
+    try:
+        client = redis.Redis(**connection_kwargs)
+        client.ping()
+        return client
+    except redis.RedisError:
+        return None
+
+
+r = _init_redis_client()
+
 # Explicit re-exports for clearer "from settings import ..." usage
 __all__ = [
     "bot",
     "client",
+    "r",
     "PAY_URL_HARMONY",
     "PAY_URL_REFLECTION",
     "PAY_URL_TRAVEL",
@@ -89,6 +128,11 @@ __all__ += [
     "IMAGE_MODEL",
     "VISION_MODEL",
     "CHAT_MODEL",
+    "REDIS_HOST",
+    "REDIS_PORT",
+    "REDIS_DB",
+    "REDIS_PASSWORD",
+    "CRM_TARIFF_CODE",
     "PAY_URL_PACK_PHOTO_50",
     "PAY_URL_PACK_PHOTO_200",
     "PAY_URL_PACK_DOC_10",
