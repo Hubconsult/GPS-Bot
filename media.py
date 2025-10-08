@@ -1,32 +1,9 @@
 import base64
 import io
-from datetime import date, datetime
-
 import requests
 from telebot import types
-from settings import (
-    bot,
-    client,
-    TOKEN,
-    IMAGE_MODEL,
-    VISION_MODEL,
-    PAY_URL_PACK_PHOTO_50,
-    PAY_URL_PACK_PHOTO_200,
-    PAY_URL_PACK_DOC_10,
-    PAY_URL_PACK_DOC_30,
-    PAY_URL_PACK_ANALYZE_20,
-    PAY_URL_PACK_ANALYZE_100,
-    is_owner,
-)
-from tariffs import TARIFFS, user_tariffs
-from storage import (
-    get_or_init_month_balance,
-    dec_media,
-    get_media_balance,
-    read_trials,
-    mark_trial_used,
-    add_package,
-)
+
+from settings import bot, client, TOKEN, IMAGE_MODEL, VISION_MODEL
 from worker_media import enqueue_media_task
 
 # Состояние простое: что от пользователя ждём далее
@@ -43,96 +20,12 @@ def multimedia_menu():
         types.InlineKeyboardButton("Excel", callback_data="mm_excel"),
         types.InlineKeyboardButton("Презентация", callback_data="mm_pptx"),
     )
-    kb.add(types.InlineKeyboardButton("Докупить пакеты", callback_data="mm_buy"))
     return kb
-
-def multimedia_buy_menu():
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("50 фото • 299 ₽", url=PAY_URL_PACK_PHOTO_50))
-    kb.add(types.InlineKeyboardButton("200 фото • 799 ₽", url=PAY_URL_PACK_PHOTO_200))
-    kb.add(types.InlineKeyboardButton("10 документов • 199 ₽", url=PAY_URL_PACK_DOC_10))
-    kb.add(types.InlineKeyboardButton("30 документов • 499 ₽", url=PAY_URL_PACK_DOC_30))
-    kb.add(types.InlineKeyboardButton("20 анализов • 149 ₽", url=PAY_URL_PACK_ANALYZE_20))
-    kb.add(types.InlineKeyboardButton("100 анализов • 499 ₽", url=PAY_URL_PACK_ANALYZE_100))
-    return kb
-
-# Вынесем определение включённых лимитов по активному тарифу
-def _included_limits_for(chat_id: int) -> dict:
-    info = user_tariffs.get(chat_id)
-    if not info:
-        return {"photos": 0, "docs": 0, "analysis": 0}
-    tariff_key = info["tariff"]
-    tariff = TARIFFS.get(tariff_key, {})
-    return tariff.get("media_limits", {"photos": 0, "docs": 0, "analysis": 0})
-
-
-def _tariff_is_active(chat_id: int) -> bool:
-    info = user_tariffs.get(chat_id)
-    if not info:
-        return False
-    end = info.get("end")
-    if isinstance(end, datetime):
-        return end > datetime.now()
-    if isinstance(end, date):
-        return end >= datetime.now().date()
-    return False
-
-
-# Проверка и инициализация баланса на месяц (если нет — поставим из тарифа)
-def ensure_month_balance(chat_id: int):
-    defaults = _included_limits_for(chat_id)
-    return get_or_init_month_balance(chat_id, defaults)
-
-# Мягкая проверка лимитов с учётом триала (по 1 штуке, если нет тарифа)
-def try_consume(chat_id: int, kind: str) -> bool:
-    if is_owner(chat_id):
-        return True
-    # если есть активный тариф — работаем с месячным балансом тарифа
-    if _tariff_is_active(chat_id):
-        # списываем из месячного тарифа
-        info = user_tariffs.get(chat_id)
-        if info:
-            tariff = TARIFFS.get(info["tariff"])
-            if tariff:
-                ensure_month_balance(chat_id)
-                return dec_media(chat_id, kind, 1)
-        return True
-    # если тариф есть, но ещё не активирован (например, оплачивается) — подстрахуемся
-    if user_tariffs.get(chat_id):
-        ensure_month_balance(chat_id)
-        return dec_media(chat_id, kind, 1)
-    # нет тарифа — триал
-    trials = read_trials(chat_id)
-    if kind == "photos" and trials["photo_used"] == 0:
-        mark_trial_used(chat_id, "photos")
-        return True
-    if kind == "docs" and trials["doc_used"] == 0:
-        mark_trial_used(chat_id, "docs")
-        return True
-    if kind == "analysis" and trials["analysis_used"] == 0:
-        mark_trial_used(chat_id, "analysis")
-        return True
-    return False
-
-# Сообщение об исчерпании
-def out_of_limit_text(kind: str) -> str:
-    m = {
-        "photos": "генерации фото",
-        "docs": "создания документа",
-        "analysis": "анализа фото",
-    }[kind]
-    return f"🚫 Лимит {m} исчерпан. Оформи тариф или докупи пакет 👇"
-
 # --- Точка входа из главного меню: команда «Медиа» ---
 
 @bot.message_handler(func=lambda msg: msg.text == "Медиа")
 def open_multimedia(m):
     bot.send_message(m.chat.id, "Выбери функцию:", reply_markup=multimedia_menu())
-
-@bot.callback_query_handler(func=lambda call: call.data == "mm_buy")
-def on_buy(call):
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, "Дополнительные пакеты:", reply_markup=multimedia_buy_menu())
 
 # --- Ветки функций ---
 
@@ -173,11 +66,6 @@ def media_text_router(m):
     state = user_media_state.get(m.chat.id, {})
     mode = state.get("mode")
     if mode == "photo_gen":
-        # лимит на фото
-        if not try_consume(m.chat.id, "photos"):
-            bot.send_message(m.chat.id, out_of_limit_text("photos"), reply_markup=multimedia_buy_menu())
-            user_media_state.pop(m.chat.id, None)
-            return
         # генерация фото
         prompt = m.text.strip()
         try:
@@ -197,30 +85,18 @@ def media_text_router(m):
         return
 
     if mode == "pdf":
-        if not try_consume(m.chat.id, "docs"):
-            bot.send_message(m.chat.id, out_of_limit_text("docs"), reply_markup=multimedia_buy_menu())
-            user_media_state.pop(m.chat.id, None)
-            return
         bot.send_message(m.chat.id, "📄 Готовлю PDF, пришлю файл чуть позже…")
         enqueue_media_task(m.chat.id, "pdf", m.text or "")
         user_media_state.pop(m.chat.id, None)
         return
 
     if mode == "excel":
-        if not try_consume(m.chat.id, "docs"):
-            bot.send_message(m.chat.id, out_of_limit_text("docs"), reply_markup=multimedia_buy_menu())
-            user_media_state.pop(m.chat.id, None)
-            return
         bot.send_message(m.chat.id, "📊 Формирую Excel, отправлю, как только соберу данные…")
         enqueue_media_task(m.chat.id, "excel", m.text or "")
         user_media_state.pop(m.chat.id, None)
         return
 
     if mode == "pptx":
-        if not try_consume(m.chat.id, "docs"):
-            bot.send_message(m.chat.id, out_of_limit_text("docs"), reply_markup=multimedia_buy_menu())
-            user_media_state.pop(m.chat.id, None)
-            return
         bot.send_message(m.chat.id, "🖼️ Собираю презентацию, скоро пришлю готовый файл…")
         enqueue_media_task(m.chat.id, "pptx", m.text or "")
         user_media_state.pop(m.chat.id, None)
@@ -233,11 +109,6 @@ def on_photo_message(m):
     state = user_media_state.get(m.chat.id, {})
     if state.get("mode") != "photo_analyze":
         return  # не ждём фото — игнорируем, отработает общий fallback
-
-    if not try_consume(m.chat.id, "analysis"):
-        bot.send_message(m.chat.id, out_of_limit_text("analysis"), reply_markup=multimedia_buy_menu())
-        user_media_state.pop(m.chat.id, None)
-        return
 
     try:
         file_id = m.photo[-1].file_id
