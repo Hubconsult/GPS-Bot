@@ -1,13 +1,13 @@
+import logging
+import re
+import sys
 import threading
 import time
-import logging
-import datetime
-import sys
 import traceback
-from threading import Lock
 from contextlib import suppress
 from pathlib import Path
-from typing import Callable, Set
+from threading import Lock
+from typing import Callable
 
 from storage import (
     init_db,
@@ -19,19 +19,6 @@ from storage import (
     TTL,
 )
 from telebot import types
-
-# Tariff configuration and state tracking
-from tariffs import (
-    BASIC_TARIFF_KEY,
-    TARIFFS,
-    TARIFF_MODES,
-    user_tariffs,
-    activate_tariff,
-    check_expiring_tariffs,
-    start_payment,
-)
-from hints import get_hint
-from info import get_info_text, info_keyboard
 
 # Ensure media handlers are registered
 import media
@@ -51,7 +38,6 @@ from settings import (
     CHAT_MODEL,
     HISTORY_LIMIT,
     is_owner,
-    PAY_URL_HARMONY,
     SYSTEM_PROMPT,
 )
 from openai_adapter import (
@@ -86,9 +72,22 @@ def log_exception(exc: Exception) -> None:
     sys.stdout.flush()
 
 
+def replace_foreign_links_with_ru(text: str) -> str:
+    """Заменяет зарубежные ссылки на российские аналоги."""
+    replacements = {
+        r"https?://(www\.)?weather\.com[^\s)]*": "https://yandex.ru/pogoda",
+        r"https?://(en\.)?wikipedia\.org[^\s)]*": "https://ru.wikipedia.org",
+        r"https?://(www\.)?cnn\.com[^\s)]*": "https://ria.ru",
+        r"https?://(www\.)?bbc\.com[^\s)]*": "https://tass.ru",
+        r"https?://(www\.)?google\.com[^\s)]*": "https://yandex.ru",
+    }
+    for pattern, replacement in replacements.items():
+        text = re.sub(pattern, replacement, flags=re.IGNORECASE)
+    return text
+
+
 # --- Константы подписки ---
 CHANNEL_USERNAME = "@SynteraAI"
-CHANNEL_URL = "https://t.me/SynteraAI"
 BOT_DEEP_LINK = "https://t.me/SynteraGPT_bot"
 PHOTO_FILE = Path(__file__).resolve().parent / "baner_dlya_perehoda.png"
 START_CAPTION = (
@@ -100,11 +99,10 @@ START_CAPTION = (
     "— Анализ фото и документов\n"
     "— Короткие и развёрнутые ответы\n\n"
     "🔥 Бесплатный доступ к продвинутым технологиям — попробуй все форматы и оцени возможности.\n\n"
-    "Чтобы перейти к боту, требуется подписка на канал."
+    "Присоединяйся к каналу @SynteraAI, чтобы не пропустить обновления."
 )
 
 # --- Хранилища состояния пользователей ---
-user_moods = {}
 # Хранилище истории сообщений пользователей (локальный кэш)
 user_histories = {}  # {chat_id: [ {role: "user"/"assistant", content: "..."}, ... ]}
 user_messages = {}  # {chat_id: [message_id, ...]}
@@ -116,15 +114,6 @@ _language_cache: dict[int, str] = {}
 # Сохраняет последние ответы: ключ (chat_id, text_lower) -> ответ.
 response_cache: dict[tuple[int, str], str] = {}
 
-# --- Подтверждение подписки ---
-verified_users: Set[int] = set()
-# Timestamp of the last reminder we sent to the user about subscribing.
-# Helps us avoid spamming one reminder per message, while still making
-# sure every message receives a response (users reported that the bot
-# was silent when they weren't verified yet).
-pending_verification: Set[int] = set()
-last_subscription_reminders: dict[int, float] = {}
-
 
 def _ensure_history_cached(chat_id: int) -> None:
     if chat_id not in user_histories:
@@ -135,35 +124,9 @@ def _ensure_history_cached(chat_id: int) -> None:
             user_histories[chat_id] = []
 
 
-def has_channel_subscription(user_id: int) -> bool:
-    try:
-        status = bot.get_chat_member(CHANNEL_USERNAME, user_id).status
-    except Exception:
-        return False
-    return status in {"member", "administrator", "creator"}
-
-
-def subscription_check_keyboard() -> types.InlineKeyboardMarkup:
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Перейти к боту", callback_data="check_and_open"))
-    return kb
-
-
-def pay_inline(chat_id: int) -> types.InlineKeyboardMarkup:
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    tariff_key = BASIC_TARIFF_KEY
-    tariff = TARIFFS[tariff_key]
-    url = start_payment(chat_id, tariff_key)
-    kb.add(
-        types.InlineKeyboardButton(
-            f"{tariff['name']} • {tariff['price']} ₽", url=url
-        )
-    )
-    return kb
-
-
 def send_start_window(chat_id) -> None:
-    keyboard = subscription_check_keyboard()
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Открыть бота", url=BOT_DEEP_LINK))
 
     try:
         with PHOTO_FILE.open("rb") as photo:
@@ -171,105 +134,16 @@ def send_start_window(chat_id) -> None:
                 chat_id,
                 photo,
                 caption=START_CAPTION,
-                reply_markup=keyboard,
+                reply_markup=kb,
                 parse_mode="HTML",
             )
     except FileNotFoundError:
         bot.send_message(
             chat_id,
             START_CAPTION,
-            reply_markup=keyboard,
+            reply_markup=kb,
             parse_mode="HTML",
         )
-
-
-def send_subscription_prompt(chat_id: int, user_id: int) -> None:
-    send_start_window(chat_id)
-    pending_verification.add(user_id)
-
-
-def send_subscription_reminder(chat_id: int, user_id: int, *, force: bool = False) -> None:
-    if not force:
-        last_prompt = last_subscription_reminders.get(user_id)
-        now = time.monotonic()
-        if last_prompt is not None and now - last_prompt < 60:
-            pending_verification.add(user_id)
-            return
-        last_subscription_reminders[user_id] = now
-    else:
-        last_subscription_reminders[user_id] = time.monotonic()
-
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Подписаться на канал", url=CHANNEL_URL))
-    kb.add(types.InlineKeyboardButton("Проверить подписку", callback_data="check_and_open"))
-
-    bot.send_message(
-        chat_id,
-        (
-            "Для использования бота нужно подписаться на канал @SynteraAI.\n"
-            "После подписки нажмите «Проверить подписку»."
-        ),
-        reply_markup=kb,
-    )
-
-    pending_verification.add(user_id)
-
-
-def send_subscription_confirmed(chat_id: int) -> None:
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Открыть бота", url=BOT_DEEP_LINK))
-    bot.send_message(
-        chat_id,
-        "Подписка подтверждена. Теперь вы можете перейти к боту.",
-        reply_markup=kb,
-    )
-
-
-def ensure_verified(
-    chat_id: int,
-    user_id: int,
-    *,
-    remind: bool = True,
-    force_check: bool = False,
-) -> bool:
-    if not force_check and user_id in verified_users:
-        return True
-
-    if has_channel_subscription(user_id):
-        verified_users.add(user_id)
-        pending_verification.discard(user_id)
-        return True
-
-    verified_users.discard(user_id)
-
-    if remind:
-        send_subscription_reminder(chat_id, user_id)
-
-    return False
-
-
-# --- /info
-@bot.message_handler(commands=["info"])
-def cmd_info(m):
-    bot.send_message(
-        m.chat.id,
-        get_info_text(),
-        reply_markup=info_keyboard(),
-        parse_mode="HTML",
-    )
-
-
-# --- /pay
-@bot.message_handler(commands=["pay"])
-def cmd_pay(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    bot.send_message(
-        m.chat.id,
-        "Выберите тариф:",
-        reply_markup=pay_inline(m.chat.id),
-    )
 
 
 # --- /media
@@ -302,7 +176,6 @@ def send_and_store(chat_id, text, **kwargs):
 
 
 def send_welcome_menu(chat_id: int) -> None:
-    user_moods[chat_id] = []
     send_and_store(
         chat_id,
         START_CAPTION,
@@ -313,41 +186,16 @@ def send_welcome_menu(chat_id: int) -> None:
 # --- Клавиатуры ---
 
 def main_menu():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    kb.add(
-        types.KeyboardButton("Чек-ин"),
-        types.KeyboardButton("Стата"),
-        types.KeyboardButton("Оплата"),
-    )
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add(
         types.KeyboardButton("Медиа"),
-        types.KeyboardButton("Информация"),
         types.KeyboardButton("Профиль"),
     )
     kb.add(
         types.KeyboardButton("Очистить"),
         types.KeyboardButton("Lang 🌐"),
-        types.KeyboardButton("СРМ"),
     )
     return kb
-
-
-def pay_menu():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    tariff = TARIFFS[BASIC_TARIFF_KEY]
-    kb.add(f"{tariff['name']} • {tariff['price']} ₽")
-    kb.add("⬅️ Назад")
-    return kb
-
-
-@bot.message_handler(func=lambda m: m.text == "Информация")
-def show_info(m):
-    bot.send_message(
-        m.chat.id,
-        get_info_text(),
-        reply_markup=info_keyboard(),
-        parse_mode="HTML",
-    )
 
 
 @bot.message_handler(func=lambda m: m.text == "Профиль")
@@ -384,39 +232,12 @@ def get_language(chat_id: int) -> str:
 
     return _language_cache.get(chat_id, "ru")
 
-# --- Проверка лимита ---
-
-def check_limit(chat_id) -> bool:
-    if is_owner(chat_id):
-        return True
-
-    return ensure_verified(chat_id, chat_id, force_check=True)
-
-# --- Helpers ---
-
-def increment_counter(chat_id) -> None:
-    if is_owner(chat_id):
-        return
-
-    # Квоты отключены: счётчик сообщений больше не ведём для бесплатных пользователей.
-    return
-
-# --- Получение режима из активного тарифа ---
+# --- Получение режима пользователя ---
 
 def get_user_mode(chat_id: int) -> str:
-    # Если этот пользователь является владельцем бота, назначаем режим «Философ»
-    # вне зависимости от тарифа. OWNER_ID и функция is_owner импортируются из settings.py.
     if is_owner(chat_id):
         return "philosopher"
-
-    # Для остальных пользователей режим определяется активным тарифом
-    info = user_tariffs.get(chat_id)
-    if not info:
-        return "short_friend"
-    if info["end"] < datetime.date.today():
-        user_tariffs.pop(chat_id, None)
-        return "short_friend"
-    return TARIFF_MODES.get(info["tariff"], "short_friend")
+    return "short_friend"
 
 # --- Режимы общения ---
 
@@ -726,6 +547,8 @@ def stream_gpt_answer(
         if not final_text:
             final_text = "⚠️ Ответ пуст."
 
+        final_text = replace_foreign_links_with_ru(final_text)
+
         if used_web:
             response_cache.pop(cache_key, None)
 
@@ -756,15 +579,7 @@ def stream_gpt_answer(
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
 def start(m):
-    if ensure_verified(
-        m.chat.id,
-        m.from_user.id,
-        remind=False,
-        force_check=True,
-    ):
-        send_welcome_menu(m.chat.id)
-    else:
-        send_subscription_prompt(m.chat.id, m.from_user.id)
+    send_welcome_menu(m.chat.id)
 
 
 @bot.message_handler(commands=["publish"])
@@ -785,44 +600,8 @@ def publish(m):
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "check_and_open")
-def check_and_open(call):
-    was_verified = call.from_user.id in verified_users
-
-    if ensure_verified(call.message.chat.id, call.from_user.id, remind=False, force_check=True):
-        if was_verified:
-            bot.answer_callback_query(call.id, "✅ Подписка уже подтверждена")
-        else:
-            bot.answer_callback_query(call.id, "✅ Подписка подтверждена")
-            send_subscription_confirmed(call.message.chat.id)
-
-        send_welcome_menu(call.message.chat.id)
-    else:
-        bot.answer_callback_query(call.id, "❌ Подписка не найдена")
-        send_subscription_reminder(call.message.chat.id, call.from_user.id, force=True)
-
-@bot.message_handler(func=lambda msg: msg.text == "Чек-ин")
-def mood_start(m):
-    if not check_limit(m.chat.id): return
-    increment_counter(m.chat.id)
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=4, one_time_keyboard=True)
-    kb.add("😊", "😟", "😴", "😡")
-    kb.add("⬅️ Назад")
-    send_and_store(m.chat.id, "Выбери смайлик, который ближе к твоему состоянию:", reply_markup=kb)
-
-@bot.message_handler(func=lambda msg: msg.text in ["😊", "😟", "😴", "😡"])
-def mood_save(m):
-    if not check_limit(m.chat.id): return
-    increment_counter(m.chat.id)
-    user_moods.setdefault(m.chat.id, []).append(m.text)
-    send_and_store(m.chat.id, f"Принял {m.text}. Спасибо за отметку!", reply_markup=main_menu())
-
-
 @bot.message_handler(func=lambda msg: msg.text == "Очистить")
 def cmd_clear(msg):
-    if not ensure_verified(msg.chat.id, msg.from_user.id, force_check=True):
-        return
-
     clear_history(msg.chat.id)
     user_histories.pop(msg.chat.id, None)
     user_messages.pop(msg.chat.id, None)
@@ -832,9 +611,6 @@ def cmd_clear(msg):
 
 @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("Lang"))
 def cmd_language(msg):
-    if not ensure_verified(msg.chat.id, msg.from_user.id, force_check=True):
-        return
-
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("Русский 🇷🇺", callback_data="lang_ru"))
     kb.add(types.InlineKeyboardButton("English 🇬🇧", callback_data="lang_en"))
@@ -845,10 +621,6 @@ def cmd_language(msg):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
 def on_language_change(call):
-    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
-        bot.answer_callback_query(call.id, "❌ Требуется подписка")
-        return
-
     lang = call.data.split("_", 1)[1]
     set_language(call.message.chat.id, lang)
 
@@ -856,156 +628,6 @@ def on_language_change(call):
     chosen = names.get(lang, lang)
     bot.answer_callback_query(call.id, f"Language set: {chosen}")
     send_and_store(call.message.chat.id, f"✅ Now I will talk in {chosen}", reply_markup=main_menu())
-
-@bot.message_handler(func=lambda msg: msg.text == "Стата")
-def stats(m):
-    if not check_limit(m.chat.id): return
-    increment_counter(m.chat.id)
-    moods = user_moods.get(m.chat.id, [])
-    counts = {e: moods.count(e) for e in ["😊", "😟", "😴", "😡"]}
-    send_and_store(
-        m.chat.id,
-        f"📊 <b>Твоя неделя</b>\n"
-        f"😊 Радость: {counts['😊']}\n"
-        f"😟 Тревога: {counts['😟']}\n"
-        f"😴 Усталость: {counts['😴']}\n"
-        f"😡 Злость: {counts['😡']}",
-        reply_markup=main_menu(),
-    )
-
-@bot.message_handler(func=lambda msg: msg.text == "Оплата")
-def pay_button(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    send_and_store(
-        m.chat.id,
-        get_info_text(),
-        reply_markup=info_keyboard(),
-    )
-    send_and_store(
-        m.chat.id,
-        "Выбери тариф 👇",
-        reply_markup=pay_menu()
-    )
-
-
-@bot.message_handler(func=lambda msg: msg.text == "Basic • 299 ₽")
-def tariffs(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    url = PAY_URL_HARMONY
-
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Перейти к оплате 💳", url=url))
-    kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-
-    send_and_store(m.chat.id, f"Ты выбрал: {m.text}", reply_markup=kb)
-
-@bot.message_handler(func=lambda msg: msg.text == "⬅️ Назад")
-def back_to_menu(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    send_and_store(m.chat.id, "Главное меню:", reply_markup=main_menu())
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "back")
-def callback_back(call):
-    bot.answer_callback_query(call.id)
-
-    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
-        return
-
-    send_and_store(
-        call.message.chat.id,
-        "Главное меню:",
-        reply_markup=main_menu()
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "back_to_menu")
-def callback_back_to_menu(call):
-    bot.answer_callback_query(call.id)
-
-    if not ensure_verified(call.message.chat.id, call.from_user.id, force_check=True):
-        return
-
-    send_and_store(
-        call.message.chat.id,
-        "Главное меню:",
-        reply_markup=main_menu()
-    )
-
-# --- Команда для показа тарифов ---
-@bot.message_handler(commands=["tariffs"])
-def show_tariffs(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    tariff = TARIFFS[BASIC_TARIFF_KEY]
-    text = (
-        "📜 <b>SynteraGPT Basic</b>\n\n"
-        f"{tariff['name']} — {tariff['price']} ₽/мес.\n{tariff['description']}"
-    )
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton(
-            f"{tariff['name']} • {tariff['price']} ₽", url=tariff["pay_url"]
-        )
-    )
-
-    send_and_store(m.chat.id, text, reply_markup=kb)
-
-# --- Активация тарифа ---
-@bot.message_handler(commands=["activate"])
-def activate(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    parts = m.text.split()
-    tariff_key = parts[1].lower() if len(parts) >= 2 else BASIC_TARIFF_KEY
-    _reward, msg = activate_tariff(m.chat.id, tariff_key)
-    if not msg:
-        send_and_store(m.chat.id, "❌ Не удалось активировать тариф")
-        return
-    send_and_store(m.chat.id, msg)
-
-# --- Подсказка ---
-@bot.message_handler(commands=["hint"])
-def hint(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
-    parts = m.text.split()
-    if len(parts) < 2:
-        send_and_store(
-            m.chat.id, "❌ Укажи шаг подсказки: /hint 0"
-        )
-        return
-
-    if len(parts) == 2:
-        tariff_key = BASIC_TARIFF_KEY
-        step_part = parts[1]
-    else:
-        tariff_key = parts[1].lower()
-        step_part = parts[2]
-
-    try:
-        step = int(step_part)
-    except ValueError:
-        send_and_store(m.chat.id, "❌ Шаг подсказки должен быть числом")
-        return
-
-    tariff = TARIFFS.get(tariff_key)
-    if not tariff:
-        send_and_store(m.chat.id, "❌ Такой тариф недоступен")
-        return
-
-    hint_text = get_hint(tariff["category"], step)
-    send_and_store(m.chat.id, f"🔮 Подсказка: {hint_text}")
 
 @bot.message_handler(
     func=lambda msg: any(
@@ -1026,9 +648,6 @@ def hint(m):
     )
 )
 def who_are_you(m):
-    if not ensure_verified(m.chat.id, m.from_user.id, force_check=True):
-        return
-
     text = (
         "Я работаю на базе GPT-5 Mini, новейшей компактной модели. "
         "GPT-5 Mini обеспечивает глубокую проработку диалога, высокую точность "
@@ -1045,8 +664,6 @@ def who_are_you(m):
 def background_checker():
     counter = 1
     while True:
-        check_expiring_tariffs(bot)
-
         if counter % 7 == 0:
             # Очищаем локальные хранилища: историю сообщений, кэш ответов и отправленные сообщения
             user_histories.clear()
@@ -1070,8 +687,6 @@ def background_checker():
     func=lambda msg: bool(getattr(msg, "text", "")) and not msg.text.startswith("/")
 )
 def fallback(m):
-    if not check_limit(m.chat.id): return
-    increment_counter(m.chat.id)
     mode = get_user_mode(m.chat.id)
     prefer_web = should_prefer_web(m.text)
     stream_gpt_answer(
@@ -1085,10 +700,8 @@ def fallback(m):
 # --- Запуск ---
 if __name__ == "__main__":
     from worker_media import start_media_worker
-    from worker_payments import start_payments_worker
 
     start_media_worker()
-    start_payments_worker()
     threading.Thread(target=background_checker, daemon=True).start()
 
     while True:
