@@ -19,7 +19,6 @@ from telebot import types
 from openai_adapter import extract_response_text, prepare_responses_input
 from settings import (
     CHAT_MODEL,
-    IMAGE_MODEL,
     OWNER_ID,
     bot,
     client as openai_client,
@@ -188,34 +187,31 @@ def _normalize_image(image_bytes: bytes) -> Optional[bytes]:
 
 
 def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
+    """Генерирует изображение под тему поста с защитой от битых данных."""
     prompt = image_prompt or DEFAULT_IMAGE_PROMPT
-    raw_bytes: Optional[bytes] = None
-
     try:
         result = openai_client.images.generate(
-            model=IMAGE_MODEL,
+            model="gpt-image-1",  # ✅ именно GPT-Image-1
             prompt=prompt,
-            size="1792x1024",
+            size="1024x512",  # ✅ размер оптимальный под Telegram-пост
             quality="standard",
         )
-        b64 = result.data[0].b64_json
-        if b64:
-            raw_bytes = base64.b64decode(b64)
-    except Exception as exc:  # noqa: BLE001
-        print("[POSTGEN] Ошибка генерации картинки:", exc)
-
-    if raw_bytes:
+        b64_data = result.data[0].b64_json if result.data else None
+        if not b64_data:
+            raise ValueError("Empty image data from OpenAI API")
+        raw_bytes = base64.b64decode(b64_data)
         normalized = _normalize_image(raw_bytes)
-        if normalized:
+        if normalized and len(normalized) > 10000:  # минимальный размер файла >10KB
             return normalized
-
-    try:
-        with FALLBACK_IMAGE.open("rb") as backup:
-            fallback_bytes = backup.read()
-    except FileNotFoundError:
-        return raw_bytes
-
-    return _normalize_image(fallback_bytes) or fallback_bytes
+        raise ValueError("Image too small or invalid format")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[POSTGEN] Ошибка генерации картинки: {exc}")
+        try:
+            with FALLBACK_IMAGE.open("rb") as backup:
+                fallback_bytes = backup.read()
+            return _normalize_image(fallback_bytes) or fallback_bytes
+        except FileNotFoundError:
+            return None
 
 
 def _publish_post(message, caption: str, image_bytes: Optional[bytes]) -> None:
