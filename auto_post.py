@@ -187,29 +187,35 @@ def _normalize_image(image_bytes: bytes) -> Optional[bytes]:
 
 
 def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
-    """Генерирует изображение под тему поста с защитой от битых данных."""
     prompt = image_prompt or DEFAULT_IMAGE_PROMPT
     try:
-        # пробуем без явного указания модели
         result = openai_client.images.generate(
             prompt=prompt,
-            size="512x512",
+            size="512x512",  # уменьшенный размер
             quality="standard",
         )
-        b64_data = result.data[0].b64_json if result.data else None
-        if not b64_data:
-            raise ValueError("Empty image data")
-        raw = base64.b64decode(b64_data)
+        b64 = None
+        if result.data and len(result.data) > 0:
+            b64 = result.data[0].b64_json
+        if not b64:
+            raise ValueError("Empty b64 data from API")
+
+        raw = base64.b64decode(b64)
+        if not raw or len(raw) < 10240:
+            raise ValueError(f"Image too small: {len(raw)} bytes")
+
         normalized = _normalize_image(raw)
-        return normalized or raw
+        if normalized:
+            return normalized
+        return raw
     except Exception as exc:  # noqa: BLE001
         print(f"[POSTGEN] Ошибка генерации картинки: {exc}")
-        # fallback
         try:
             with FALLBACK_IMAGE.open("rb") as f:
                 fb = f.read()
             return _normalize_image(fb) or fb
-        except FileNotFoundError:
+        except Exception as e2:  # noqa: BLE001
+            print(f"[POSTGEN] Fallback тоже не удался: {e2}")
             return None
 
 
@@ -218,12 +224,12 @@ def _publish_post(message, caption: str, image_bytes: Optional[bytes]) -> None:
     kb.add(types.InlineKeyboardButton("Перейти к боту", url=BOT_LINK))
 
     targets = [CHANNEL_ID, GROUP_ID]
-    try:
-        for target in targets:
-            if image_bytes:
-                buffer = BytesIO(image_bytes)
-                buffer.name = "syntera_post.jpg"
-                buffer.seek(0)
+    for target in targets:
+        if image_bytes:
+            buffer = BytesIO(image_bytes)
+            buffer.name = "syntera_post.jpg"
+            buffer.seek(0)
+            try:
                 bot.send_photo(
                     target,
                     buffer,
@@ -231,17 +237,27 @@ def _publish_post(message, caption: str, image_bytes: Optional[bytes]) -> None:
                     parse_mode="HTML",
                     reply_markup=kb,
                 )
-            else:
-                bot.send_message(
+            except Exception as e_photo:  # noqa: BLE001
+                print(f"[POSTGEN] send_photo failed, try send_document: {e_photo}")
+                buffer.seek(0)
+                bot.send_document(
                     target,
-                    caption,
+                    buffer,
+                    caption=caption,
                     parse_mode="HTML",
                     reply_markup=kb,
                 )
-        bot.reply_to(message, "✅ Пост опубликован в канал и группу.")
-    except Exception as exc:  # noqa: BLE001
-        bot.reply_to(message, f"❌ Ошибка при публикации: {exc}")
-        traceback.print_exc()
+        else:
+            bot.send_message(
+                target,
+                caption,
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
+    try:
+        bot.reply_to(message, "✅ Пост опубликован.")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _handle_post_request(message, mode: str) -> None:
