@@ -5,7 +5,9 @@ from __future__ import annotations
 import base64
 import json
 import random
+import re
 import traceback
+from collections import deque
 from contextlib import suppress
 from datetime import datetime
 from io import BytesIO
@@ -14,6 +16,8 @@ from typing import Optional, Tuple
 
 from PIL import Image, UnidentifiedImageError
 from telebot import types
+
+from internet import ask_gpt_web  # используем ваш рабочий веб-поиск
 
 from openai_adapter import extract_response_text, prepare_responses_input
 from settings import (
@@ -43,6 +47,27 @@ DEFAULT_IMAGE_PROMPT = (
     "дружественная атмосфера, современный стиль."
 )
 FALLBACK_IMAGE = Path(__file__).resolve().parent / "syntera_logo.png"
+_recent_news_topics: deque[str] = deque(maxlen=50)
+
+
+def _read_banner_bytes() -> Optional[bytes]:
+    try:
+        with BANER_PATH.open("rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
+
+def _extract_json_block(text: str) -> dict:
+    """Достаёт первый валидный JSON-объект из ответа (на случай, если модель добавит лишний текст)."""
+
+    try:
+        return json.loads(text)
+    except Exception:
+        m = re.search(r"\{.*\}", text, flags=re.S)
+        if not m:
+            raise ValueError("JSON payload not found")
+        return json.loads(m.group(0))
 
 _last_scenario: Optional[str] = None
 
@@ -124,65 +149,82 @@ def _generate_post_payload(mode: str) -> Tuple[str, str]:
         )
 
 
-def _generate_news_payload() -> tuple[str, str, str]:
-    """Генерирует развёрнутую новость из открытых источников с реальной ссылкой."""
+def _generate_news_payload() -> Tuple[str, str, str]:
+    """
+    Возвращает (headline, post_text, url) на основе реального веб-поиска.
+    Используем ваш модуль internet.ask_gpt_web, чтобы гарантированно идти в сеть.
+    """
 
-    today = datetime.now().strftime("%d.%m.%Y")
+    avoided = ", ".join(list(_recent_news_topics)[-10:]) or "—"
 
-    system_prompt = (
-        "Ты — редактор Telegram-канала SynteraGPT. "
-        "Используй инструмент web_search, чтобы находить реальные новости об ИИ, технологиях и нейросетях. "
-        "Выбирай свежую, проверенную публикацию из авторитетных источников (Reuters, MIT Tech Review, Wired, The Verge, N+1, TAdviser и др.). "
-        "Создай развёрнутый материал — 4–8 абзацев — с объяснением сути, контекста, последствий и мнений экспертов. "
-        "Обязательно укажи ссылку на источник (в поле url). Не выдумывай новости."
-    )
+    prompt = f"""
+Найди ОДНУ реально свежую (за последние 48 часов) важную новость об ИИ/технологиях/программировании.
+Избегай повторов тем: {avoided}.
+Верни СТРОГО JSON:
+{{
+  "headline": "<краткий заголовок до 120 символов>",
+  "post": "<развёрнутый текст 4–8 абзацев, факты, контекст, последствия, без выдумок>",
+  "url": "<ПРЯМАЯ ссылка на первоисточник (не агрегатор, не соцсети)>"
+}}
+Никаких комментариев, только JSON.
+"""
 
-    user_prompt = (
-        f"Сегодня {today}. Найди самую интересную и важную новость о технологиях, искусственном интеллекте или науке. "
-        "Составь развёрнутый текст, оформи как профессиональную статью для Telegram-канала. "
-        "Добавь в конце ссылку на оригинальный источник. "
-        "Ответь строго в формате JSON с полями: headline, post, url."
-    )
-
+    # 1) Пытаемся через ваш веб‑поиск
+    raw = ask_gpt_web(prompt).strip()
     try:
-        response = openai_client.responses.create(
+        data = _extract_json_block(raw)
+        headline = (data.get("headline") or "").strip()
+        post_text = (data.get("post") or "").strip()
+        url = (data.get("url") or "").strip()
+        if not (headline and post_text and url.startswith("http")):
+            raise ValueError("Incomplete web JSON")
+
+        # запомним тему для анти‑повторов
+        _recent_news_topics.append(headline.lower())
+        return headline, post_text, url
+    except Exception as exc:
+        print(f"[POSTGEN] web-news parse failed: {exc}; raw={raw[:200]}")
+
+    # 2) Фолбэк — используем Responses API с web_search (если у вас свежий openai)
+    try:
+        system_prompt = (
+            "Ты — редактор техно‑канала. Пользуйся web_search. Возвращай только факты с ссылкой."
+        )
+        user_prompt = (
+            "Найди одну свежую значимую новость про ИИ/технологии/программирование за 48 часов. "
+            f"Избегай повторов тем: {avoided}. Верни строго JSON {{\"headline\":\"...\",\"post\":\"...\",\"url\":\"...\"}}"
+        )
+        resp = openai_client.responses.create(
             model=CHAT_MODEL,
-            input=prepare_responses_input(
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-            ),
+            input=prepare_responses_input([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]),
             tools=[{"type": "web_search"}],
             response_format={"type": "json_object"},
-            max_output_tokens=2000,
-            temperature=0.75,
+            max_output_tokens=1800,
+            temperature=0.7,
         )
-
-        payload = extract_response_text(response)
-        data = json.loads(payload)
-
-        headline = (data.get("headline") or "Новости технологий").strip()
+        payload = extract_response_text(resp)
+        data = _extract_json_block(payload)
+        headline = (data.get("headline") or "").strip()
         post_text = (data.get("post") or "").strip()
-        news_url = (data.get("url") or "").strip()
+        url = (data.get("url") or "").strip()
+        if not (headline and post_text and url.startswith("http")):
+            raise ValueError("web_search returned incomplete JSON")
 
-        if not news_url.startswith("http"):
-            raise ValueError("URL не найден")
+        _recent_news_topics.append(headline.lower())
+        return headline, post_text, url
+    except Exception as exc:
+        print(f"[POSTGEN] responses/web_search failed: {exc}")
 
-        print(f"[NEWS] Источник: {news_url}")
-
-        return headline, post_text, news_url
-
-    except Exception as exc:  # noqa: BLE001
-        print("[POSTGEN] Ошибка при поиске новости:", exc)
-        return (
-            "SynteraGPT | Новости технологий",
-            (
-                "Сегодня SynteraGPT продолжает делиться свежими событиями из мира искусственного интеллекта и инноваций. "
-                "Следите за нашими публикациями, чтобы узнавать первыми о новых возможностях ИИ и технологиях будущего."
-            ),
-            "https://synteragpt.ai/news",
-        )
+    # 3) Фолбэк последней инстанции — нейтральная заглушка
+    return (
+        "SynteraGPT | Новости технологий",
+        "Пока не удалось надёжно получить свежий материал из внешних источников. "
+        "Мы скоро вернёмся с подробным разбором важных событий из мира ИИ и разработки.",
+        "https://synteragpt.ai/news",
+    )
 
 
 def _normalize_image(image_bytes: bytes) -> Optional[bytes]:
@@ -235,40 +277,26 @@ def _publish_post(message, caption: str, image_bytes: Optional[bytes]) -> None:
     kb.add(types.InlineKeyboardButton("Перейти к боту", url=BOT_LINK))
 
     targets = [CHANNEL_ID, GROUP_ID]
+
+    # если картинки нет — ставим ваш баннер
+    if not image_bytes:
+        image_bytes = _read_banner_bytes()
+
     for target in targets:
         if image_bytes:
-            buffer = BytesIO(image_bytes)
-            buffer.name = "syntera_post.jpg"
-            buffer.seek(0)
             try:
-                bot.send_photo(
-                    target,
-                    buffer,
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_markup=kb,
-                )
-            except Exception as e_photo:  # noqa: BLE001
-                print(f"[POSTGEN] send_photo failed, try send_document: {e_photo}")
-                buffer.seek(0)
-                bot.send_document(
-                    target,
-                    buffer,
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_markup=kb,
-                )
+                buf = BytesIO(image_bytes)
+                buf.name = "syntera_post.jpg"
+                buf.seek(0)
+                bot.send_photo(target, buf, caption=caption, parse_mode="HTML", reply_markup=kb)
+            except Exception as e:
+                print(f"[POSTGEN] send_photo failed: {e}")
+                bot.send_message(target, caption, parse_mode="HTML", reply_markup=kb)
         else:
-            bot.send_message(
-                target,
-                caption,
-                parse_mode="HTML",
-                reply_markup=kb,
-            )
-    try:
-        bot.reply_to(message, "✅ Пост опубликован.")
-    except Exception:  # noqa: BLE001
-        pass
+            bot.send_message(target, caption, parse_mode="HTML", reply_markup=kb)
+
+    with suppress(Exception):
+        bot.reply_to(message, "✅ Публикация завершена.")
 
 
 def _handle_post_request(message, mode: str) -> None:
@@ -278,27 +306,11 @@ def _handle_post_request(message, mode: str) -> None:
         return
 
     status_msg = bot.reply_to(message, "🧠 Генерирую контент, это займёт несколько секунд…")
-    caption = ""
-    image_bytes: Optional[bytes] = None
 
     try:
-        if mode == "news":
-            headline, post_text, news_url = _generate_news_payload()
-            caption = (
-                f"<b>{headline}</b>\n\n"
-                f"{post_text}\n\n"
-                f"🔗 Источник: <a href='{news_url}'>{news_url}</a>\n\n"
-                f"Подписывайся на канал AI Systems и участвуй в обсуждениях Hubconsult!"
-            )
-            if BANER_PATH.exists():
-                with BANER_PATH.open("rb") as f:
-                    image_bytes = f.read()
-        else:
-            text, image_prompt = _generate_post_payload(mode)
-            caption = text
-            image_bytes = _generate_image_bytes(image_prompt)
-
-        _publish_post(message, caption, image_bytes)
+        text, image_prompt = _generate_post_payload(mode)
+        image_bytes = _generate_image_bytes(image_prompt)
+        _publish_post(message, text, image_bytes)
     except Exception as exc:  # noqa: BLE001
         bot.reply_to(message, f"❌ Не удалось создать пост: {exc}")
         traceback.print_exc()
@@ -318,12 +330,28 @@ def create_long_post(message):
 
 
 @bot.message_handler(commands=["post_news"])
-def create_news_post(message):
-    _handle_post_request(message, "news")
+def cmd_post_news(message):
+    user_id = getattr(message.from_user, "id", None)
+    if user_id != OWNER_ID:
+        bot.reply_to(message, "⛔ Команда доступна только владельцу.")
+        return
+
+    headline, post_text, news_url = _generate_news_payload()
+
+    caption = (
+        f"<b>{headline}</b>\n\n"
+        f"{post_text}\n\n"
+        f"🔗 Источник: <a href='{news_url}'>{news_url}</a>\n\n"
+        f"Подписывайся на AI Systems и участвуй в обсуждениях Hubconsult!"
+    )
+
+    # всегда используем ваш баннер для новостей
+    image_bytes = _read_banner_bytes()
+    _publish_post(message, caption, image_bytes)
 
 
 __all__ = [
     "create_short_post",
     "create_long_post",
-    "create_news_post",
+    "cmd_post_news",
 ]
