@@ -190,26 +190,25 @@ def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
     """Генерирует изображение под тему поста с защитой от битых данных."""
     prompt = image_prompt or DEFAULT_IMAGE_PROMPT
     try:
+        # пробуем без явного указания модели
         result = openai_client.images.generate(
-            model="gpt-image-1",  # ✅ именно GPT-Image-1
             prompt=prompt,
-            size="1024x512",  # ✅ размер оптимальный под Telegram-пост
+            size="512x512",
             quality="standard",
         )
         b64_data = result.data[0].b64_json if result.data else None
         if not b64_data:
-            raise ValueError("Empty image data from OpenAI API")
-        raw_bytes = base64.b64decode(b64_data)
-        normalized = _normalize_image(raw_bytes)
-        if normalized and len(normalized) > 10000:  # минимальный размер файла >10KB
-            return normalized
-        raise ValueError("Image too small or invalid format")
+            raise ValueError("Empty image data")
+        raw = base64.b64decode(b64_data)
+        normalized = _normalize_image(raw)
+        return normalized or raw
     except Exception as exc:  # noqa: BLE001
         print(f"[POSTGEN] Ошибка генерации картинки: {exc}")
+        # fallback
         try:
-            with FALLBACK_IMAGE.open("rb") as backup:
-                fallback_bytes = backup.read()
-            return _normalize_image(fallback_bytes) or fallback_bytes
+            with FALLBACK_IMAGE.open("rb") as f:
+                fb = f.read()
+            return _normalize_image(fb) or fb
         except FileNotFoundError:
             return None
 
