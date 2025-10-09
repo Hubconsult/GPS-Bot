@@ -433,26 +433,6 @@ def format_user_stats(user_id: int, display_hint: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
-__all__ = [
-    "compose_display_name",
-    "format_usage_report",
-    "format_user_stats",
-    "get_top_users",
-    "get_user_stats",
-    "init_usage_tracking",
-    "record_user_activity",
-]
-
-
-# --- Админские команды для владельца бота ---
-from settings import bot, OWNER_ID
-from telebot import types
-
-
-def _owner_only(user_id: Optional[int]) -> bool:
-    return user_id == OWNER_ID
-
-
 def format_usage_report(limit: int = 20) -> str:
     """Сводка по активности пользователей."""
     try:
@@ -482,53 +462,12 @@ def format_usage_report(limit: int = 20) -> str:
     return "\n\n".join(lines)
 
 
-@bot.message_handler(commands=["top_users"])
-def cmd_top_users(message):
-    """Команда доступна только владельцу: показывает топ пользователей."""
-    if not _owner_only(getattr(message.from_user, "id", None)):
-        bot.reply_to(message, "⛔ Команда доступна только владельцу бота.")
-        return
-
-    try:
-        report = format_usage_report()
-    except Exception as e:  # pragma: no cover - запасная защита
-        bot.send_message(message.chat.id, f"⚠️ Ошибка статистики: {e}")
-        return
-
-    bot.send_message(message.chat.id, report, parse_mode="HTML")
-
-
-@bot.message_handler(commands=["user_stats"])
-def cmd_user_stats(message):
-    """Показывает статистику по конкретному ID, только для владельца."""
-    if not _owner_only(getattr(message.from_user, "id", None)):
-        bot.reply_to(message, "⛔ Команда доступна только владельцу бота.")
-        return
-
-    parts = message.text.strip().split(maxsplit=1)
-    if len(parts) < 2:
-        bot.reply_to(message, "📎 Использование: /user_stats <user_id>")
-        return
-
-    try:
-        uid = int(parts[1])
-    except ValueError:
-        bot.reply_to(message, "⚠️ Некорректный ID.")
-        return
-
-    data = _load_user_record(uid)
-    if not data:
-        bot.reply_to(message, "❌ Данных по пользователю нет.")
-        return
-
-    text = (
-        f"<b>👤 Пользователь:</b> {data.get('username') or '—'}\n"
-        f"<b>ID:</b> <code>{uid}</code>\n\n"
-        f"Всего запросов: {data.get('total_requests', 0)}\n"
-        f"Текстовых: {data.get('text_requests', 0)}\n"
-        f"Изображений: {data.get('image_generations', 0)}\n"
-        f"Документов: {data.get('doc_generations', 0)}\n\n"
-        f"<b>Последняя активность:</b> "
-        f"{datetime.fromtimestamp(data.get('last_used_at', 0)).strftime('%d.%m.%Y %H:%M:%S')}"
-    )
-    bot.send_message(message.chat.id, text, parse_mode="HTML")
+__all__ = [
+    "compose_display_name",
+    "format_usage_report",
+    "format_user_stats",
+    "get_top_users",
+    "get_user_stats",
+    "init_usage_tracking",
+    "record_user_activity",
+]

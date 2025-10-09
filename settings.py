@@ -23,7 +23,7 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 
 # --- Новые настройки моделей для мультимедиа ---
-IMAGE_MODEL = os.getenv("IMAGE_MODEL", "dall-e-3")        # генерация изображений (DALL·E 3 Standard)
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1")     # генерация изображений (минимальная стоимость)
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o-mini")   # анализ изображений (vision)
 
 # --- Модель для основного чата (GPT-5 mini) ---
