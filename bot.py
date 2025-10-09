@@ -7,7 +7,6 @@ import traceback
 from contextlib import suppress
 from pathlib import Path
 from threading import Lock
-from typing import Callable
 
 from storage import (
     init_db,
@@ -31,6 +30,25 @@ from internet import ask_gpt_web, should_escalate_to_web, should_prefer_web
 
 from bot_utils import show_typing
 
+# --- RU-only links mapping: ONLY for final user-visible text (do not touch SDK objects) ---
+def map_links_ru(text):
+    """
+    Безопасная фильтрация ссылок: оставляем российские домены,
+    заменяем зарубежные на доступные для РФ источники.
+    """
+    if not isinstance(text, str) or "http" not in text:
+        return text
+    rules = [
+        (r'https?://(?:www\.)?weather\.com[^\s)]+', 'https://yandex.ru/pogoda'),
+        (r'https?://(?:en\.)?wikipedia\.org[^\s)]+', 'https://ru.wikipedia.org'),
+        (r'https?://(?:www\.)?google\.com[^\s)]+',  'https://yandex.ru'),
+        (r'https?://(?:www\.)?bbc\.com[^\s)]+',     'https://tass.ru'),
+        (r'https?://(?:www\.)?cnn\.com[^\s)]+',     'https://ria.ru'),
+    ]
+    for pat, repl in rules:
+        text = re.sub(pat, repl, text, flags=re.IGNORECASE)
+    return text
+
 # --- Конфиг: значения централизованы в settings.py ---
 from settings import (
     bot,
@@ -41,7 +59,6 @@ from settings import (
     SYSTEM_PROMPT,
 )
 from openai_adapter import (
-    coerce_content_to_text,
     extract_response_text,
     prepare_responses_input,
 )
@@ -70,20 +87,6 @@ def log_exception(exc: Exception) -> None:
     print(msg)
     logging.error(msg)
     sys.stdout.flush()
-
-
-def replace_foreign_links_with_ru(text: str) -> str:
-    """Заменяет зарубежные ссылки (weather.com, wikipedia.org и т.д.) на российские аналоги."""
-    replacements = {
-        r"https?://(www\.)?weather\.com[^\s)]*": "https://yandex.ru/pogoda",
-        r"https?://(en\.)?wikipedia\.org[^\s)]*": "https://ru.wikipedia.org",
-        r"https?://(www\.)?cnn\.com[^\s)]*": "https://ria.ru",
-        r"https?://(www\.)?bbc\.com[^\s)]*": "https://tass.ru",
-        r"https?://(www\.)?google\.com[^\s)]*": "https://yandex.ru",
-    }
-    for pattern, replacement in replacements.items():
-        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-    return text
 
 
 # --- Константы подписки ---
@@ -277,14 +280,6 @@ MODES = {
     },
 }
 
-# --- GPT-5 Mini ответ с потоковой выдачей ---
-
-EDIT_INTERVAL = 0.4             # не слишком частые редактирования (сек)
-FIRST_CHUNK_TOKENS = 12         # показать быстро несколько токенов
-STREAM_STALL_TIMEOUT = 30.0     # увеличили с 12.0, даём стриму до 30 секунд тишины
-MAX_RETRIES = 3                 # увеличили число попыток с 2 до 3
-BACKOFF_BASE = 1.0              # базовая пауза при retry (сек)
-
 # --- Размер контекста для модели ---
 # Сколько последних сообщений из истории отправлять в GPT.
 CONTEXT_MESSAGES = 4
@@ -301,64 +296,44 @@ _logger.addHandler(fh)
 
 
 
-def ask_gpt(
-    messages: list[dict],
-    *,
-    max_tokens: int | None = None,
-    tools: list[dict] | None = None,
-    on_chunk: Callable[[str], None] | None = None,
-) -> str:
-    """Stream a response from the Responses API and optionally emit partial chunks."""
-
-    kwargs: dict = {
-        "model": CHAT_MODEL,
-        "input": prepare_responses_input(messages),
-        "stream": True,
-    }
-    if max_tokens is not None:
-        kwargs["max_output_tokens"] = max_tokens
-    if tools:
-        kwargs["tools"] = tools
-
-    stream = client.responses.create(**kwargs)
-    collected: list[str] = []
-    final_response = None
-
+def ask_gpt(messages, max_tokens=None):
+    """
+    Главная функция вызова OpenAI SDK.
+    1. Сначала пробуем Responses API с tools (web-search, file-search и т.д.)
+    2. Если не доступно — fallback в Chat Completions.
+    """
     try:
-        for event in stream:
-            event_type = getattr(event, "type", "")
-            if event_type in {"response.output_text.delta", "response.message.delta"}:
-                chunk = coerce_content_to_text(getattr(event, "delta", None))
-                if chunk:
-                    collected.append(chunk)
-                    if on_chunk is not None:
-                        try:
-                            on_chunk(chunk)
-                        except Exception:
-                            pass
-            elif event_type == "response.error":
-                error = getattr(event, "error", None)
-                message = getattr(error, "message", None) or str(error)
-                raise RuntimeError(message)
-            elif event_type == "response.completed":
-                with suppress(Exception):
-                    final_response = stream.get_final_response()
+        # --- Responses API (с поддержкой web_search tools) ---
+        inputs = prepare_responses_input(messages)
+        resp = client.responses.create(
+            model=inputs.get("model"),
+            input=inputs.get("input"),
+            temperature=inputs.get("temperature", 0.3),
+            max_output_tokens=max_tokens or inputs.get("max_output_tokens"),
+            tools=inputs.get("tools"),
+            tool_choice=inputs.get("tool_choice"),
+        )
+        text = extract_response_text(resp)
+        if isinstance(text, str) and text.strip():
+            # применяем фильтр ссылок только к готовому тексту
+            return map_links_ru(text.strip())
+    except Exception:
+        pass
 
-        if final_response is None:
-            with suppress(Exception):
-                final_response = stream.get_final_response()
-    finally:
-        close = getattr(stream, "close", None)
-        if callable(close):
-            with suppress(Exception):
-                close()
+    # --- fallback: Chat Completions ---
+    try:
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=messages,
+            response_format={"type": "text"},
+        )
+        text = extract_response_text(resp)
+        if isinstance(text, str) and text.strip():
+            return map_links_ru(text.strip())
+    except Exception:
+        pass
 
-    text = ""
-    if final_response is not None:
-        text = extract_response_text(final_response) or ""
-    if not text:
-        text = "".join(collected)
-    return text.strip()
+    return "Извините, не удалось получить ответ."
 
 def _get_chat_lock(chat_id: int) -> Lock:
     """Возвращает (и создаёт при необходимости) Lock для конкретного чата."""
@@ -461,48 +436,13 @@ def stream_gpt_answer(
             response_cache[cache_key] = final_text
             return
 
-        partial_chunks: list[str] = []
-        start_time = time.monotonic()
-        last_edit = start_time
-        first_chunk_sent = False
-
-        def handle_chunk(chunk: str) -> None:
-            nonlocal last_edit, first_chunk_sent, message_failed
-            if not chunk:
-                return
-
-            partial_chunks.append(chunk)
-            aggregated_raw = "".join(partial_chunks)
-            safe_partial = sanitize_for_telegram(aggregated_raw)
-            if not safe_partial:
-                return
-
-            now = time.monotonic()
-            should_update = False
-            if not first_chunk_sent:
-                cleaned_length = len(sanitize_model_output(aggregated_raw))
-                if cleaned_length >= FIRST_CHUNK_TOKENS or now - start_time >= EDIT_INTERVAL:
-                    should_update = True
-            elif now - last_edit >= EDIT_INTERVAL:
-                should_update = True
-
-            if should_update and not message_failed:
-                try:
-                    bot.edit_message_text(safe_partial, chat_id, msg_id, parse_mode="HTML")
-                    first_chunk_sent = True
-                    last_edit = now
-                except Exception:
-                    message_failed = True
-
-        error_occurred = False
         try:
-            final_text = ask_gpt(messages, on_chunk=handle_chunk)
+            final_text = ask_gpt(messages)
+            error_occurred = False
         except Exception:
-            error_occurred = True
             final_text = ""
-            _logger.exception("Failed to stream response")
-
-        aggregated_raw = "".join(partial_chunks)
+            error_occurred = True
+            _logger.exception("Failed to get response")
 
         if error_occurred:
             if history and history[-1].get("role") == "user" and history[-1].get("content") == user_text:
@@ -518,9 +458,6 @@ def stream_gpt_answer(
                 with suppress(Exception):
                     bot.send_message(chat_id, safe_failure or failure_text, parse_mode="HTML")
             return
-
-        if not final_text:
-            final_text = aggregated_raw
 
         final_text = sanitize_model_output(final_text)
 
@@ -547,7 +484,7 @@ def stream_gpt_answer(
         if not final_text:
             final_text = "⚠️ Ответ пуст."
 
-        final_text = replace_foreign_links_with_ru(final_text)
+        final_text = map_links_ru(final_text)
 
         if used_web:
             response_cache.pop(cache_key, None)
