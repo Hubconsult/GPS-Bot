@@ -18,6 +18,7 @@ from storage import (
     TTL,
 )
 from telebot import types
+from telebot.apihelper import ApiTelegramException
 
 # Ensure media handlers are registered
 import media
@@ -55,6 +56,7 @@ from settings import (
     client,
     CHAT_MODEL,
     HISTORY_LIMIT,
+    OWNER_ID,
     is_owner,
     SYSTEM_PROMPT,
 )
@@ -67,8 +69,44 @@ from text_utils import sanitize_for_telegram, sanitize_model_output
 # Регистрация команды /post
 import auto_post  # noqa: F401 - регистрация команды /post
 
+from usage_tracker import (
+    compose_display_name,
+    format_usage_report,
+    format_user_stats,
+    init_usage_tracking,
+    record_user_activity,
+)
+
 # Initialize the SQLite storage before handling any requests
 init_db()
+init_usage_tracking()
+
+
+def _register_bot_commands() -> None:
+    """Отобразить основные команды в боковом меню Telegram."""
+
+    owner_commands = [
+        types.BotCommand("post", "Создать пост"),
+        types.BotCommand("post_news", "Новость с фото"),
+        types.BotCommand("top_users", "Топ активных пользователей"),
+        types.BotCommand("user_stats", "Статистика по ID"),
+    ]
+
+    try:
+        with suppress(Exception):
+            bot.delete_my_commands()
+        bot.set_my_commands(
+            owner_commands,
+            scope=types.BotCommandScopeChat(chat_id=OWNER_ID),
+        )
+        menu_button_cls = getattr(types, "MenuButtonCommands", None)
+        if menu_button_cls:
+            bot.set_chat_menu_button(chat_id=OWNER_ID, menu_button=menu_button_cls())
+    except Exception:
+        pass
+
+
+_register_bot_commands()
 
 # --- Логирование с записью в файл ---
 LOG_FILE = Path(__file__).resolve().parent / "gpsbot.log"
@@ -90,7 +128,12 @@ def log_exception(exc: Exception) -> None:
 
 
 # --- Константы подписки ---
-CHANNEL_USERNAME = "@SynteraAI"
+CHANNEL_USERNAME = "AI Systems"
+CHANNEL_LINK = "https://t.me/SynteraAI"
+CHANNEL_CHAT_ID = "@SynteraAI"
+GROUP_NAME = "Hubconsult"
+GROUP_LINK = "https://t.me/HubConsult"
+GROUP_CHAT_ID = "@HubConsult"
 BOT_DEEP_LINK = "https://t.me/SynteraGPT_bot"
 PHOTO_FILE = Path(__file__).resolve().parent / "baner_dlya_perehoda.png"
 START_CAPTION = (
@@ -102,8 +145,86 @@ START_CAPTION = (
     "— Анализ фото и документов\n"
     "— Короткие и развёрнутые ответы\n\n"
     "🔥 Бесплатный доступ к продвинутым технологиям — попробуй все форматы и оцени возможности.\n\n"
-    "Присоединяйся к каналу @SynteraAI, чтобы не пропустить обновления."
+    "Перед использованием подпишись на канал AI Systems и вступи в сообщество Hubconsult."
 )
+
+REQUIRED_CHATS = (
+    {"id": CHANNEL_CHAT_ID, "title": CHANNEL_USERNAME, "link": CHANNEL_LINK},
+    {"id": GROUP_CHAT_ID, "title": GROUP_NAME, "link": GROUP_LINK},
+)
+SUBSCRIPTION_PROMPT_COOLDOWN = 30
+_subscription_prompted: dict[int, float] = {}
+
+SUBSCRIPTION_MESSAGE = (
+    "<b>Доступ к SynteraGPT</b>\n\n"
+    "Перед использованием подпишись на канал AI Systems и вступи в группу Hubconsult. "
+    "После подписки нажми \"Проверить подписку\"."
+)
+
+
+def _fetch_subscription_status(user_id: int) -> bool:
+    for chat in REQUIRED_CHATS:
+        try:
+            member = bot.get_chat_member(chat["id"], user_id)
+        except ApiTelegramException:
+            return False
+
+        status = getattr(member, "status", None)
+        if status not in {"creator", "administrator", "member", "owner"}:
+            return False
+
+    return True
+
+
+def _send_subscription_prompt(chat_id: int, *, force: bool = False) -> None:
+    now = time.time()
+    last_prompt = _subscription_prompted.get(chat_id, 0)
+    if not force and now - last_prompt < SUBSCRIPTION_PROMPT_COOLDOWN:
+        return
+
+    _subscription_prompted[chat_id] = now
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for chat in REQUIRED_CHATS:
+        kb.add(
+            types.InlineKeyboardButton(
+                f"Подписаться: {chat['title']}",
+                url=chat["link"],
+            )
+        )
+
+    kb.add(types.InlineKeyboardButton("🔄 Проверить подписку", callback_data="check_subscription"))
+
+    bot.send_message(chat_id, SUBSCRIPTION_MESSAGE, parse_mode="HTML", reply_markup=kb)
+
+
+def ensure_subscription(chat_id: int, user_id: int | None = None, *, notify: bool = True) -> bool:
+    uid = user_id or chat_id
+
+    if is_owner(uid):
+        return True
+
+    status = _fetch_subscription_status(uid)
+
+    if status:
+        _subscription_prompted.pop(chat_id, None)
+        return True
+
+    if notify:
+        _send_subscription_prompt(chat_id, force=True)
+    return False
+
+
+def _display_name_from_user(user) -> str:
+    if user is None:
+        return ""
+
+    return compose_display_name(
+        username=getattr(user, "username", None),
+        first_name=getattr(user, "first_name", None),
+        last_name=getattr(user, "last_name", None),
+    )
+
 
 # --- Хранилища состояния пользователей ---
 # Хранилище истории сообщений пользователей (локальный кэш)
@@ -152,6 +273,8 @@ def send_start_window(chat_id) -> None:
 # --- /media
 @bot.message_handler(commands=["media"])
 def cmd_media(m):
+    if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
+        return
     bot.send_message(
         m.chat.id,
         "Доступные мультимедиа функции:",
@@ -162,6 +285,8 @@ def cmd_media(m):
 # --- /profile
 @bot.message_handler(commands=["profile"])
 def cmd_profile(m):
+    if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
+        return
     bot.send_message(
         m.chat.id,
         f"Ваш ID: {m.from_user.id}\n"
@@ -516,6 +641,8 @@ def stream_gpt_answer(
 # --- Хэндлеры ---
 @bot.message_handler(commands=["start"])
 def start(m):
+    if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
+        return
     send_welcome_menu(m.chat.id)
 
 
@@ -526,7 +653,7 @@ def publish(m):
         return
 
     try:
-        send_start_window(CHANNEL_USERNAME)
+        send_start_window(CHANNEL_CHAT_ID)
     except Exception as exc:
         bot.reply_to(m, f"❌ Не удалось опубликовать стартовое окно: {exc}")
         return
@@ -539,6 +666,8 @@ def publish(m):
 
 @bot.message_handler(func=lambda msg: msg.text == "Очистить")
 def cmd_clear(msg):
+    if not ensure_subscription(msg.chat.id, getattr(msg.from_user, "id", None)):
+        return
     clear_history(msg.chat.id)
     user_histories.pop(msg.chat.id, None)
     user_messages.pop(msg.chat.id, None)
@@ -548,6 +677,8 @@ def cmd_clear(msg):
 
 @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("Lang"))
 def cmd_language(msg):
+    if not ensure_subscription(msg.chat.id, getattr(msg.from_user, "id", None)):
+        return
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("Русский 🇷🇺", callback_data="lang_ru"))
     kb.add(types.InlineKeyboardButton("English 🇬🇧", callback_data="lang_en"))
@@ -556,8 +687,30 @@ def cmd_language(msg):
     bot.send_message(msg.chat.id, "🌐 Choose your language:", reply_markup=kb)
 
 
+@bot.callback_query_handler(func=lambda call: call.data == "check_subscription")
+def on_subscription_check(call):
+    subscribed = ensure_subscription(
+        call.message.chat.id,
+        getattr(call.from_user, "id", None),
+        notify=False,
+    )
+    if subscribed:
+        bot.answer_callback_query(call.id, "✅ Подписка подтверждена!")
+        send_welcome_menu(call.message.chat.id)
+    else:
+        bot.answer_callback_query(
+            call.id,
+            "⚠️ Подписка не найдена. Проверьте, что вы подписаны на оба сообщества.",
+            show_alert=False,
+        )
+        _send_subscription_prompt(call.message.chat.id, force=True)
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
 def on_language_change(call):
+    if not ensure_subscription(call.message.chat.id, getattr(call.from_user, "id", None)):
+        bot.answer_callback_query(call.id, "Сначала подпишитесь на канал и группу")
+        return
     lang = call.data.split("_", 1)[1]
     set_language(call.message.chat.id, lang)
 
@@ -566,36 +719,53 @@ def on_language_change(call):
     bot.answer_callback_query(call.id, f"Language set: {chosen}")
     send_and_store(call.message.chat.id, f"✅ Now I will talk in {chosen}", reply_markup=main_menu())
 
-@bot.message_handler(
-    func=lambda msg: any(
-        word in msg.text.lower()
-        for word in [
-            "кто ты",
-            "что ты",
-            "какая версия",
-            "твоя версия",
-            "версия гпт",
-            "какая модель",
-            "твоя модель",
-            "модель гпт",
-            "структура",
-            "архитектура",
-            "gpt",
-        ]
-    )
-)
-def who_are_you(m):
-    text = (
-        "Я работаю на базе GPT-5 Mini, новейшей компактной модели. "
-        "GPT-5 Mini обеспечивает глубокую проработку диалога, высокую точность "
-        "и адаптивность, опирается на академические знания и современные исследования. "
-        "Модель поддерживает разные стили общения: Короткий друг, Философ и Академический. "
-        "Она разработана для того, чтобы вести живой разговор, давать содержательные ответы "
-        "и предлагать практические рекомендации на основе психологии. "
-        "Использование GPT-5 Mini позволяет создавать осмысленные и развернутые ответы, "
-        "которые помогают в самоанализе и принятии решений."
-    )
-    bot.send_message(m.chat.id, text, reply_markup=main_menu())
+
+@bot.message_handler(commands=["top_users"])
+def show_top_users(m):
+    if not is_owner(getattr(m.from_user, "id", 0)):
+        bot.reply_to(m, "❌ Команда доступна только владельцу бота.")
+        return
+
+    if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
+        return
+
+    report = format_usage_report()
+    bot.send_message(m.chat.id, report, parse_mode="HTML")
+
+
+@bot.message_handler(commands=["user_stats"])
+def show_user_stats(m):
+    if not is_owner(getattr(m.from_user, "id", 0)):
+        bot.reply_to(m, "❌ Команда доступна только владельцу бота.")
+        return
+
+    if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
+        return
+
+    target_id = None
+    hint_name = ""
+
+    parts = (m.text or "").split(maxsplit=1)
+    if len(parts) > 1:
+        candidate = parts[1].strip()
+        candidate = candidate.replace("@", "")
+        if candidate.isdigit():
+            target_id = int(candidate)
+        else:
+            bot.reply_to(m, "⚠️ Укажите ID пользователя цифрами или ответьте на его сообщение.")
+            return
+    elif m.reply_to_message:
+        target_user = getattr(m.reply_to_message, "from_user", None)
+        if target_user:
+            target_id = getattr(target_user, "id", None)
+            hint_name = _display_name_from_user(target_user)
+
+    if not target_id:
+        bot.reply_to(m, "⚠️ Укажите ID пользователя или ответьте на сообщение нужного пользователя.")
+        return
+
+    report = format_user_stats(target_id, hint_name)
+    bot.send_message(m.chat.id, report, parse_mode="HTML")
 
 # --- Фоновая проверка окончаний подписок и очистка истории ---
 def background_checker():
@@ -624,6 +794,15 @@ def background_checker():
     func=lambda msg: bool(getattr(msg, "text", "")) and not msg.text.startswith("/")
 )
 def fallback(m):
+    if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
+        return
+    user = getattr(m, "from_user", None)
+    user_id = getattr(user, "id", m.chat.id)
+    record_user_activity(
+        user_id,
+        category="text",
+        display_name=_display_name_from_user(user),
+    )
     mode = get_user_mode(m.chat.id)
     prefer_web = should_prefer_web(m.text)
     stream_gpt_answer(
