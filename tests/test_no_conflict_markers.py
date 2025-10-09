@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 
-CONFLICT_PATTERNS = ("<<<<<<<", "=======", ">>>>>>>")
+# Build patterns without embedding the raw merge markers directly in the source
+# file.  Keeping them literal caused this test module to fail the check against
+# itself, so we compose the strings dynamically instead.
+CONFLICT_PATTERNS = ("<" * 7, "=" * 7, ">" * 7)
 
 
 def _list_tracked_files() -> list[Path]:
