@@ -13,17 +13,14 @@ from storage import DB_PATH, r
 _USAGE_USER_KEY_PREFIX = "usage:user:"
 _USAGE_USER_SET_KEY = "usage:user_ids"
 _USAGE_INIT_MARKER_KEY = "usage:initialized"
- codex/restore-subscription-function-and-posts-qud580
+
 _SQLITE_READY = False
-=======
- main
 
 
 def _user_key(user_id: int) -> str:
     return f"{_USAGE_USER_KEY_PREFIX}{user_id}"
 
 
- codex/restore-subscription-function-and-posts-qud580
 def _ensure_sqlite_ready() -> None:
     global _SQLITE_READY
     if _SQLITE_READY:
@@ -55,8 +52,6 @@ def _ensure_sqlite_ready() -> None:
             conn.close()
 
 
-=======
- main
 def init_usage_tracking() -> None:
     """Инициализировать учёт в Redis и выполнить миграцию из SQLite при необходимости."""
 
@@ -66,14 +61,11 @@ def init_usage_tracking() -> None:
     setattr(init_usage_tracking, "_initialized", True)
 
     try:
- codex/restore-subscription-function-and-posts-qud580
         _ensure_sqlite_ready()
     except Exception:
         pass
 
     try:
-=======
- main
         r.ping()
     except Exception:  # pragma: no cover - Redis недоступен, используем in-memory
         return
@@ -174,7 +166,6 @@ def _save_user_record(data: Dict[str, int | str]) -> None:
     r.sadd(_USAGE_USER_SET_KEY, user_id)
 
 
- codex/restore-subscription-function-and-posts-qud580
 def _write_sqlite_record(data: Dict[str, int | str]) -> None:
     if not data:
         return
@@ -301,8 +292,6 @@ def _load_all_sqlite() -> List[Dict[str, int | str]]:
     return result
 
 
-=======
- main
 def record_user_activity(
     user_id: int,
     *,
@@ -339,10 +328,7 @@ def record_user_activity(
     data["last_used_at"] = now
 
     _save_user_record(data)
- codex/restore-subscription-function-and-posts-qud580
     _write_sqlite_record(data)
-=======
- main
 
 
 def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, int, int, int]]:
@@ -377,7 +363,6 @@ def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, i
         )
 
     rows.sort(key=lambda item: (item[2], item[6]), reverse=True)
- codex/restore-subscription-function-and-posts-qud580
     if rows:
         return rows[:limit]
 
@@ -401,14 +386,10 @@ def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, i
         for record in fallback_records
     ]
     return formatted[:limit]
-=======
-    return rows[:limit]
- main
 
 
 def get_user_stats(user_id: int) -> Optional[Dict[str, int | str]]:
     init_usage_tracking()
- codex/restore-subscription-function-and-posts-qud580
     record = _load_user_record(user_id)
     if record:
         return record
@@ -418,9 +399,6 @@ def get_user_stats(user_id: int) -> Optional[Dict[str, int | str]]:
         _save_user_record(fallback)
         return fallback
     return None
-=======
-    return _load_user_record(user_id)
- main
 
 
 def _format_last_used(timestamp: int) -> str:
@@ -431,30 +409,6 @@ def _format_last_used(timestamp: int) -> str:
     except Exception:
         return "н/д"
     return last_dt.strftime("%d.%m.%Y %H:%M")
-
-
-def format_usage_report(limit: int = 10) -> str:
-    """Вернуть отчёт о самых активных пользователях для отправки в Telegram."""
-
-    stats = get_top_users(limit)
-    if not stats:
-        return "Пока нет данных об активности пользователей."
-
-    lines = ["<b>Топ активных пользователей</b>"]
-    for idx, (user_id, username, total, text_cnt, img_cnt, doc_cnt, last_used) in enumerate(stats, start=1):
-        name = html.escape(username or "н/д")
-        lines.append(
-            "\n".join(
-                [
-                    f"{idx}. ID: <code>{user_id}</code> — всего {total} запросов",
-                    f"   Имя/ник: {name}",
-                    f"   Текст: {text_cnt} · Изображения: {img_cnt} · Документы: {doc_cnt}",
-                    f"   Последняя активность: {_format_last_used(last_used)}",
-                ]
-            )
-        )
-
-    return "\n".join(lines)
 
 
 def format_user_stats(user_id: int, display_hint: Optional[str] = None) -> str:
@@ -488,3 +442,93 @@ __all__ = [
     "init_usage_tracking",
     "record_user_activity",
 ]
+
+
+# --- Админские команды для владельца бота ---
+from settings import bot, OWNER_ID
+from telebot import types
+
+
+def _owner_only(user_id: Optional[int]) -> bool:
+    return user_id == OWNER_ID
+
+
+def format_usage_report(limit: int = 20) -> str:
+    """Сводка по активности пользователей."""
+    try:
+        ids = list(map(int, r.smembers(_USAGE_USER_SET_KEY)))
+        records = []
+        for uid in ids:
+            data = _load_user_record(uid)
+            if data:
+                records.append(data)
+        records.sort(key=lambda d: d.get("total_requests", 0), reverse=True)
+    except Exception as e:
+        return f"⚠️ Ошибка чтения статистики: {e}"
+
+    if not records:
+        return "📊 Пока нет данных об активности пользователей."
+
+    lines = ["<b>📊 Топ активных пользователей</b>\n"]
+    for d in records[:limit]:
+        lines.append(
+            f"<b>{d.get('username') or '—'}</b> "
+            f"(ID: <code>{d['user_id']}</code>)\n"
+            f"Всего: {d['total_requests']}, "
+            f"Текст: {d['text_requests']}, "
+            f"Фото: {d['image_generations']}, "
+            f"Документы: {d['doc_generations']}"
+        )
+    return "\n\n".join(lines)
+
+
+@bot.message_handler(commands=["top_users"])
+def cmd_top_users(message):
+    """Команда доступна только владельцу: показывает топ пользователей."""
+    if not _owner_only(getattr(message.from_user, "id", None)):
+        bot.reply_to(message, "⛔ Команда доступна только владельцу бота.")
+        return
+
+    try:
+        report = format_usage_report()
+    except Exception as e:  # pragma: no cover - запасная защита
+        bot.send_message(message.chat.id, f"⚠️ Ошибка статистики: {e}")
+        return
+
+    bot.send_message(message.chat.id, report, parse_mode="HTML")
+
+
+@bot.message_handler(commands=["user_stats"])
+def cmd_user_stats(message):
+    """Показывает статистику по конкретному ID, только для владельца."""
+    if not _owner_only(getattr(message.from_user, "id", None)):
+        bot.reply_to(message, "⛔ Команда доступна только владельцу бота.")
+        return
+
+    parts = message.text.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "📎 Использование: /user_stats <user_id>")
+        return
+
+    try:
+        uid = int(parts[1])
+    except ValueError:
+        bot.reply_to(message, "⚠️ Некорректный ID.")
+        return
+
+    data = _load_user_record(uid)
+    if not data:
+        bot.reply_to(message, "❌ Данных по пользователю нет.")
+        return
+
+    text = (
+        f"<b>👤 Пользователь:</b> {data.get('username') or '—'}\n"
+        f"<b>ID:</b> <code>{uid}</code>\n\n"
+        f"Всего запросов: {data.get('total_requests', 0)}\n"
+        f"Текстовых: {data.get('text_requests', 0)}\n"
+        f"Изображений: {data.get('image_generations', 0)}\n"
+        f"Документов: {data.get('doc_generations', 0)}\n\n"
+        f"<b>Последняя активность:</b> "
+        f"{datetime.fromtimestamp(data.get('last_used_at', 0)).strftime('%d.%m.%Y %H:%M:%S')}"
+    )
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
