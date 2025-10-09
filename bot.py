@@ -73,7 +73,7 @@ def log_exception(exc: Exception) -> None:
 
 
 def replace_foreign_links_with_ru(text: str) -> str:
-    """Заменяет зарубежные ссылки на российские аналоги."""
+    """Заменяет зарубежные ссылки (weather.com, wikipedia.org и т.д.) на российские аналоги."""
     replacements = {
         r"https?://(www\.)?weather\.com[^\s)]*": "https://yandex.ru/pogoda",
         r"https?://(en\.)?wikipedia\.org[^\s)]*": "https://ru.wikipedia.org",
@@ -82,7 +82,7 @@ def replace_foreign_links_with_ru(text: str) -> str:
         r"https?://(www\.)?google\.com[^\s)]*": "https://yandex.ru",
     }
     for pattern, replacement in replacements.items():
-        text = re.sub(pattern, replacement, flags=re.IGNORECASE)
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
 
