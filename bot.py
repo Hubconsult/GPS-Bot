@@ -81,39 +81,6 @@ from usage_tracker import (
 init_db()
 init_usage_tracking()
 
-
-def _register_bot_commands() -> None:
-    """Отобразить основные команды в боковом меню Telegram."""
-
-    owner_commands = [
-        types.BotCommand("post_short", "Короткий пост"),
-        types.BotCommand("post_long", "Длинный пост"),
-        types.BotCommand("post_news", "Новость с фото"),
-        types.BotCommand("top_users", "Топ активных пользователей"),
-        types.BotCommand("user_stats", "Статистика по ID"),
-    ]
-
-    try:
-        with suppress(Exception):
-            bot.delete_my_commands(scope=types.BotCommandScopeDefault())
-            default_menu_cls = getattr(types, "MenuButtonDefault", None)
-            if default_menu_cls:
-                bot.set_chat_menu_button(menu_button=default_menu_cls())
-            else:
-                bot.set_chat_menu_button()
-        bot.set_my_commands(
-            owner_commands,
-            scope=types.BotCommandScopeChat(chat_id=OWNER_ID),
-        )
-        menu_button_cls = getattr(types, "MenuButtonCommands", None)
-        if menu_button_cls:
-            bot.set_chat_menu_button(chat_id=OWNER_ID, menu_button=menu_button_cls())
-    except Exception:
-        pass
-
-
-_register_bot_commands()
-
 # --- Логирование с записью в файл ---
 LOG_FILE = Path(__file__).resolve().parent / "gpsbot.log"
 
@@ -729,7 +696,7 @@ def on_language_change(call):
 @bot.message_handler(commands=["top_users"])
 def show_top_users(m):
     if not is_owner(getattr(m.from_user, "id", 0)):
-        bot.reply_to(m, "❌ Команда доступна только владельцу бота.")
+        bot.reply_to(m, "⛔ Команда доступна только владельцу.")
         return
 
     if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):
@@ -742,7 +709,7 @@ def show_top_users(m):
 @bot.message_handler(commands=["user_stats"])
 def show_user_stats(m):
     if not is_owner(getattr(m.from_user, "id", 0)):
-        bot.reply_to(m, "❌ Команда доступна только владельцу бота.")
+        bot.reply_to(m, "⛔ Команда доступна только владельцу.")
         return
 
     if not ensure_subscription(m.chat.id, getattr(m.from_user, "id", None)):

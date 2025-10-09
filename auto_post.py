@@ -178,7 +178,7 @@ def _generate_news_payload() -> Tuple[str, str, str]:
 def _normalize_image(image_bytes: bytes) -> Optional[bytes]:
     try:
         with Image.open(BytesIO(image_bytes)) as img:
-            if img.mode != "RGB":
+            if img.mode not in {"RGB", "L"}:
                 img = img.convert("RGB")
             buffer = BytesIO()
             img.save(buffer, format="JPEG", quality=90, optimize=True)
