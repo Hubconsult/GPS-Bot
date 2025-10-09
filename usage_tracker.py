@@ -13,12 +13,50 @@ from storage import DB_PATH, r
 _USAGE_USER_KEY_PREFIX = "usage:user:"
 _USAGE_USER_SET_KEY = "usage:user_ids"
 _USAGE_INIT_MARKER_KEY = "usage:initialized"
+ codex/restore-subscription-function-and-posts-qud580
+_SQLITE_READY = False
+=======
+ main
 
 
 def _user_key(user_id: int) -> str:
     return f"{_USAGE_USER_KEY_PREFIX}{user_id}"
 
 
+ codex/restore-subscription-function-and-posts-qud580
+def _ensure_sqlite_ready() -> None:
+    global _SQLITE_READY
+    if _SQLITE_READY:
+        return
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_stats (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                total_requests INTEGER DEFAULT 0,
+                text_requests INTEGER DEFAULT 0,
+                image_generations INTEGER DEFAULT 0,
+                doc_generations INTEGER DEFAULT 0,
+                last_used_at INTEGER DEFAULT 0
+            )
+            """
+        )
+        conn.commit()
+        _SQLITE_READY = True
+    except Exception:
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+=======
+ main
 def init_usage_tracking() -> None:
     """Инициализировать учёт в Redis и выполнить миграцию из SQLite при необходимости."""
 
@@ -28,6 +66,14 @@ def init_usage_tracking() -> None:
     setattr(init_usage_tracking, "_initialized", True)
 
     try:
+ codex/restore-subscription-function-and-posts-qud580
+        _ensure_sqlite_ready()
+    except Exception:
+        pass
+
+    try:
+=======
+ main
         r.ping()
     except Exception:  # pragma: no cover - Redis недоступен, используем in-memory
         return
@@ -128,6 +174,135 @@ def _save_user_record(data: Dict[str, int | str]) -> None:
     r.sadd(_USAGE_USER_SET_KEY, user_id)
 
 
+ codex/restore-subscription-function-and-posts-qud580
+def _write_sqlite_record(data: Dict[str, int | str]) -> None:
+    if not data:
+        return
+
+    try:
+        _ensure_sqlite_ready()
+    except Exception:
+        return
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO usage_stats (
+                user_id, username, total_requests, text_requests,
+                image_generations, doc_generations, last_used_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                username=excluded.username,
+                total_requests=excluded.total_requests,
+                text_requests=excluded.text_requests,
+                image_generations=excluded.image_generations,
+                doc_generations=excluded.doc_generations,
+                last_used_at=excluded.last_used_at
+            """,
+            (
+                int(data.get("user_id", 0)),
+                str(data.get("username") or ""),
+                int(data.get("total_requests", 0)),
+                int(data.get("text_requests", 0)),
+                int(data.get("image_generations", 0)),
+                int(data.get("doc_generations", 0)),
+                int(data.get("last_used_at", 0)),
+            ),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _load_user_record_sqlite(user_id: int) -> Optional[Dict[str, int | str]]:
+    try:
+        _ensure_sqlite_ready()
+    except Exception:
+        return None
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT user_id, username, total_requests, text_requests,
+                   image_generations, doc_generations, last_used_at
+            FROM usage_stats
+            WHERE user_id = ?
+            """,
+            (int(user_id),),
+        )
+        row = cursor.fetchone()
+    except Exception:
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "user_id": int(row[0]),
+        "username": row[1] or "",
+        "total_requests": int(row[2] or 0),
+        "text_requests": int(row[3] or 0),
+        "image_generations": int(row[4] or 0),
+        "doc_generations": int(row[5] or 0),
+        "last_used_at": int(row[6] or 0),
+    }
+
+
+def _load_all_sqlite() -> List[Dict[str, int | str]]:
+    try:
+        _ensure_sqlite_ready()
+    except Exception:
+        return []
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT user_id, username, total_requests, text_requests,
+                   image_generations, doc_generations, last_used_at
+            FROM usage_stats
+            ORDER BY total_requests DESC, last_used_at DESC
+            """
+        )
+        rows = cursor.fetchall()
+    except Exception:
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+    result: List[Dict[str, int | str]] = []
+    for row in rows:
+        result.append(
+            {
+                "user_id": int(row[0]),
+                "username": row[1] or "",
+                "total_requests": int(row[2] or 0),
+                "text_requests": int(row[3] or 0),
+                "image_generations": int(row[4] or 0),
+                "doc_generations": int(row[5] or 0),
+                "last_used_at": int(row[6] or 0),
+            }
+        )
+    return result
+
+
+=======
+ main
 def record_user_activity(
     user_id: int,
     *,
@@ -164,6 +339,10 @@ def record_user_activity(
     data["last_used_at"] = now
 
     _save_user_record(data)
+ codex/restore-subscription-function-and-posts-qud580
+    _write_sqlite_record(data)
+=======
+ main
 
 
 def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, int, int, int]]:
@@ -198,12 +377,50 @@ def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, i
         )
 
     rows.sort(key=lambda item: (item[2], item[6]), reverse=True)
+ codex/restore-subscription-function-and-posts-qud580
+    if rows:
+        return rows[:limit]
+
+    fallback_records = _load_all_sqlite()
+    if not fallback_records:
+        return []
+
+    for record in fallback_records:
+        _save_user_record(record)
+
+    formatted = [
+        (
+            int(record["user_id"]),
+            record.get("username") or None,
+            int(record.get("total_requests", 0)),
+            int(record.get("text_requests", 0)),
+            int(record.get("image_generations", 0)),
+            int(record.get("doc_generations", 0)),
+            int(record.get("last_used_at", 0)),
+        )
+        for record in fallback_records
+    ]
+    return formatted[:limit]
+=======
     return rows[:limit]
+ main
 
 
 def get_user_stats(user_id: int) -> Optional[Dict[str, int | str]]:
     init_usage_tracking()
+ codex/restore-subscription-function-and-posts-qud580
+    record = _load_user_record(user_id)
+    if record:
+        return record
+
+    fallback = _load_user_record_sqlite(user_id)
+    if fallback:
+        _save_user_record(fallback)
+        return fallback
+    return None
+=======
     return _load_user_record(user_id)
+ main
 
 
 def _format_last_used(timestamp: int) -> str:

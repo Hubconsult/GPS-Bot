@@ -16,6 +16,10 @@ from telebot import types
 
 from openai_adapter import extract_response_text, prepare_responses_input
 from settings import OWNER_ID, bot, client as openai_client, CHAT_MODEL, IMAGE_MODEL
+ codex/restore-subscription-function-and-posts-qud580
+from PIL import Image, UnidentifiedImageError
+=======
+ main
 
 CHANNEL_ID = "@SynteraAI"
 GROUP_ID = "@HubConsult"
@@ -39,6 +43,7 @@ FALLBACK_IMAGE = Path(__file__).resolve().parent / "syntera_logo.png"
 
 _last_scenario: Optional[str] = None
 _recent_news_topics: deque[str] = deque(maxlen=12)
+ codex/restore-subscription-function-and-posts-qud580
 
 
 def _pick_scenario() -> str:
@@ -63,6 +68,32 @@ def _parse_json_payload(raw: str) -> Tuple[str, str]:
     return post_text, image_prompt
 
 
+=======
+
+
+def _pick_scenario() -> str:
+    global _last_scenario
+
+    scenario = random.choice(SCENARIOS)
+    if _last_scenario and len(SCENARIOS) > 1:
+        attempts = 0
+        while scenario == _last_scenario and attempts < 5:
+            scenario = random.choice(SCENARIOS)
+            attempts += 1
+    _last_scenario = scenario
+    return scenario
+
+
+def _parse_json_payload(raw: str) -> Tuple[str, str]:
+    data = json.loads(raw)
+    post_text = (data.get("post") or "").strip()
+    image_prompt = (data.get("image_prompt") or "").strip()
+    if not post_text:
+        raise ValueError("Empty post text")
+    return post_text, image_prompt
+
+
+ main
 def _generate_post_payload(mode: str) -> Tuple[str, str]:
     scenario = _pick_scenario()
     today = datetime.now().strftime("%d.%m.%Y")
@@ -70,6 +101,7 @@ def _generate_post_payload(mode: str) -> Tuple[str, str]:
         "short": "Создай лаконичный, живой пост, который ощущается коротким — выбирай длину сам, но избегай однообразия.",
         "long": "Создай развёрнутый пост с плавным развитием мысли. Делай его детальным и атмосферным без строгих ограничений по длине.",
     }.get(mode, "Создай сбалансированный пост с богатой подачей и свободной длиной.")
+ codex/restore-subscription-function-and-posts-qud580
 
     system_prompt = (
         "Ты — креативный редактор Telegram-канала SynteraGPT. Каждый текст уникален, "
@@ -87,6 +119,25 @@ def _generate_post_payload(mode: str) -> Tuple[str, str]:
         "Ответь строго в формате JSON с полями post и image_prompt."
     )
 
+=======
+
+    system_prompt = (
+        "Ты — креативный редактор Telegram-канала SynteraGPT. Каждый текст уникален, "
+        "играет с интонациями и подчеркивает выгоды бота. Вставляй максимум два эмодзи, если они усиливают подачу, "
+        "но не делай это обязательным."
+    )
+
+    user_prompt = (
+        f"Сегодня {today}. {length_instruction}\n"
+        f"Используй как вдохновение: {scenario}.\n"
+        "Расскажи, чем полезен SynteraGPT: доступ к интернету, анализ фото и документов, генерация кода, быстрые ответы.\n"
+        "Обязательно упомяни, что эксклюзивные материалы публикуются в канале AI Systems и в группе Hubconsult.\n"
+        f"Добавь естественный призыв перейти к боту по ссылке {BOT_LINK}.\n"
+        "Меняй структуру, чтобы каждый пост отличался от предыдущего.\n"
+        "Ответь строго в формате JSON с полями post и image_prompt."
+    )
+
+ main
     try:
         response = openai_client.chat.completions.create(
             model=CHAT_MODEL,
@@ -147,6 +198,7 @@ def _generate_news_payload() -> Tuple[str, str, str]:
             max_output_tokens=650,
             temperature=0.8,
             presence_penalty=0.3,
+ codex/restore-subscription-function-and-posts-qud580
         )
         payload = extract_response_text(response)
         text, image_prompt = _parse_json_payload(payload)
@@ -165,8 +217,45 @@ def _generate_news_payload() -> Tuple[str, str, str]:
         )
 
 
+def _normalize_image(image_bytes: bytes) -> Optional[bytes]:
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            if img.mode not in {"RGB", "L"}:
+                img = img.convert("RGB")
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=90, optimize=True)
+            return buffer.getvalue()
+    except (UnidentifiedImageError, OSError):
+        return None
+=======
+        )
+        payload = extract_response_text(response)
+        text, image_prompt = _parse_json_payload(payload)
+        data = json.loads(payload)
+        headline = (data.get("headline") or text[:80]).strip()
+        if headline:
+            _recent_news_topics.append(headline.lower())
+        return text, image_prompt, headline
+    except Exception as exc:  # noqa: BLE001
+        print("[POSTGEN] Ошибка генерации новостного поста:", exc)
+        return (
+            "Сегодня мы разобрали заметную новость из мира ИИ: компании по всему миру внедряют умных ассистентов, "
+            "а SynteraGPT помогает опробовать такие решения бесплатно. Подписывайтесь на AI Systems, обсуждайте свежие кейсы в Hubconsult и жмите на бота!",
+            DEFAULT_IMAGE_PROMPT,
+            "fallback",
+        )
+ main
+
+
 def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
     prompt = image_prompt or DEFAULT_IMAGE_PROMPT
+ codex/restore-subscription-function-and-posts-qud580
+    raw_bytes: Optional[bytes] = None
+=======
+ main
     try:
         result = openai_client.images.generate(
             model=IMAGE_MODEL,
@@ -175,6 +264,21 @@ def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
             quality="standard",
         )
         b64 = result.data[0].b64_json
+ codex/restore-subscription-function-and-posts-qud580
+        raw_bytes = base64.b64decode(b64)
+    except Exception as exc:  # noqa: BLE001
+        print("[POSTGEN] Ошибка генерации картинки:", exc)
+    if raw_bytes:
+        normalized = _normalize_image(raw_bytes)
+        if normalized:
+            return normalized
+    try:
+        with FALLBACK_IMAGE.open("rb") as backup:
+            raw_bytes = backup.read()
+            return _normalize_image(raw_bytes)
+    except FileNotFoundError:
+        return None
+=======
         return base64.b64decode(b64)
     except Exception as exc:  # noqa: BLE001
         print("[POSTGEN] Ошибка генерации картинки:", exc)
@@ -183,6 +287,7 @@ def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
                 return backup.read()
         except FileNotFoundError:
             return None
+ main
 
 
 def _publish_post(message, caption: str, image_bytes: Optional[bytes]) -> None:
@@ -195,6 +300,10 @@ def _publish_post(message, caption: str, image_bytes: Optional[bytes]) -> None:
             if image_bytes:
                 buffer = BytesIO(image_bytes)
                 buffer.name = "syntera_post.jpg"
+ codex/restore-subscription-function-and-posts-qud580
+                buffer.seek(0)
+=======
+ main
                 bot.send_photo(
                     target,
                     buffer,
