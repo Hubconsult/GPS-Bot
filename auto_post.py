@@ -6,7 +6,6 @@ import base64
 import json
 import random
 import traceback
-from collections import deque
 from contextlib import suppress
 from datetime import datetime
 from io import BytesIO
@@ -27,6 +26,7 @@ from settings import (
 CHANNEL_ID = "@SynteraAI"
 GROUP_ID = "@HubConsult"
 BOT_LINK = "https://t.me/SynteraGPT_bot"
+BANER_PATH = Path(__file__).resolve().parent / "baner_dlya_perehoda.png"
 
 SCENARIOS = [
     "Расскажи мини-историю предпринимателя, который с помощью бота ускорил запуск продукта",
@@ -45,7 +45,6 @@ DEFAULT_IMAGE_PROMPT = (
 FALLBACK_IMAGE = Path(__file__).resolve().parent / "syntera_logo.png"
 
 _last_scenario: Optional[str] = None
-_recent_news_topics: deque[str] = deque(maxlen=12)
 
 
 def _pick_scenario() -> str:
@@ -125,20 +124,26 @@ def _generate_post_payload(mode: str) -> Tuple[str, str]:
         )
 
 
-def _generate_news_payload() -> Tuple[str, str, str]:
+def _generate_news_payload() -> tuple[str, str, str]:
+    """Генерирует развёрнутый новостной пост с ссылкой на источник."""
+
     today = datetime.now().strftime("%d.%m.%Y")
-    avoided_topics = ", ".join(_recent_news_topics) or "прошлые темы"
 
     system_prompt = (
-        "Ты — редактор новостного канала SynteraGPT. Используй инструмент web_search, чтобы находить свежие новости "
-        "об искусственном интеллекте, технологиях и программировании по всему миру. Стремись выбирать темы, которых ещё не было."
+        "Ты — главный редактор новостного канала SynteraGPT. "
+        "Твоя задача — находить реальные новости через web_search и создавать развёрнутые публикации. "
+        "Пиши в стиле технологических изданий: подробно, без лишней воды, но с объяснением сути. "
+        "Не придумывай новости, используй только реальные источники из интернета. "
+        "Добавь контекст, последствия, мнения экспертов или компаний, если они есть. "
+        "В конце обязательно вставь ссылку на оригинальный источник (поле url)."
     )
+
     user_prompt = (
-        f"Сегодня {today}. Найди актуальный материал об ИИ, технологиях или программировании. "
-        f"Избегай повторов тем: {avoided_topics}.\n"
-        "Если действительно свежих новостей нет, возьми важную публикацию последней недели и расскажи о ней как об уже состоявшемся событии с выводами.\n"
-        "Пост должен вдохновлять подписаться на AI Systems и вступить в Hubconsult, а также приглашать перейти к боту SynteraGPT.\n"
-        "Ответь в JSON с полями: post, image_prompt, headline."
+        f"Сегодня {today}. Найди одну действительно актуальную и значимую новость "
+        f"из мира искусственного интеллекта, технологий, нейросетей или науки. "
+        f"Создай подробный текст в 4–8 абзацев. "
+        f"Сделай его понятным широкой аудитории, но профессионально оформленным. "
+        "Ответь строго в формате JSON с полями: headline, post, url."
     )
 
     try:
@@ -152,25 +157,31 @@ def _generate_news_payload() -> Tuple[str, str, str]:
             ),
             tools=[{"type": "web_search"}],
             response_format={"type": "json_object"},
-            max_output_tokens=650,
+            max_output_tokens=1800,
             temperature=0.8,
-            presence_penalty=0.3,
-            frequency_penalty=0.2,
         )
+
         payload = extract_response_text(response)
-        text, image_prompt = _parse_json_payload(payload)
         data = json.loads(payload)
-        headline = (data.get("headline") or text[:80]).strip()
-        if headline:
-            _recent_news_topics.append(headline.lower())
-        return text, image_prompt, headline
+
+        headline = (data.get("headline") or "Новости технологий").strip()
+        post_text = (data.get("post") or "").strip()
+        news_url = (data.get("url") or "").strip()
+
+        if not news_url:
+            news_url = "https://synteragpt.ai/news"
+
+        return headline, post_text, news_url
+
     except Exception as exc:  # noqa: BLE001
-        print("[POSTGEN] Ошибка генерации новостного поста:", exc)
+        print("[POSTGEN] Ошибка генерации новости:", exc)
         return (
-            "Сегодня мы разобрали заметную новость из мира ИИ: компании по всему миру внедряют умных ассистентов, "
-            "а SynteraGPT помогает опробовать такие решения бесплатно. Подписывайтесь на AI Systems, обсуждайте свежие кейсы в Hubconsult и жмите на бота!",
-            DEFAULT_IMAGE_PROMPT,
-            "",
+            "SynteraGPT | Новости технологий",
+            (
+                "Сегодня SynteraGPT продолжает делиться свежими событиями из мира искусственного интеллекта и инноваций. "
+                "Следите за нашими публикациями, чтобы узнавать первыми о новых возможностях ИИ и технологиях будущего."
+            ),
+            "https://synteragpt.ai/news",
         )
 
 
@@ -268,17 +279,25 @@ def _handle_post_request(message, mode: str) -> None:
 
     status_msg = bot.reply_to(message, "🧠 Генерирую контент, это займёт несколько секунд…")
     caption = ""
-    image_prompt = ""
+    image_bytes: Optional[bytes] = None
 
     try:
         if mode == "news":
-            text, image_prompt, headline = _generate_news_payload()
-            caption = f"<b>{headline}</b>\n\n{text}" if headline else text
+            headline, post_text, news_url = _generate_news_payload()
+            caption = (
+                f"<b>{headline}</b>\n\n"
+                f"{post_text}\n\n"
+                f"🔗 Источник: <a href='{news_url}'>{news_url}</a>\n\n"
+                f"Подписывайся на канал AI Systems и участвуй в обсуждениях Hubconsult!"
+            )
+            if BANER_PATH.exists():
+                with BANER_PATH.open("rb") as f:
+                    image_bytes = f.read()
         else:
             text, image_prompt = _generate_post_payload(mode)
             caption = text
+            image_bytes = _generate_image_bytes(image_prompt)
 
-        image_bytes = _generate_image_bytes(image_prompt)
         _publish_post(message, caption, image_bytes)
     except Exception as exc:  # noqa: BLE001
         bot.reply_to(message, f"❌ Не удалось создать пост: {exc}")
