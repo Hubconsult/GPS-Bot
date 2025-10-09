@@ -13,13 +13,17 @@ from storage import DB_PATH, r
 _USAGE_USER_KEY_PREFIX = "usage:user:"
 _USAGE_USER_SET_KEY = "usage:user_ids"
 _USAGE_INIT_MARKER_KEY = "usage:initialized"
+ codex/restore-subscription-function-and-posts-qud580
 _SQLITE_READY = False
+=======
+ main
 
 
 def _user_key(user_id: int) -> str:
     return f"{_USAGE_USER_KEY_PREFIX}{user_id}"
 
 
+ codex/restore-subscription-function-and-posts-qud580
 def _ensure_sqlite_ready() -> None:
     global _SQLITE_READY
     if _SQLITE_READY:
@@ -51,6 +55,8 @@ def _ensure_sqlite_ready() -> None:
             conn.close()
 
 
+=======
+ main
 def init_usage_tracking() -> None:
     """Инициализировать учёт в Redis и выполнить миграцию из SQLite при необходимости."""
 
@@ -60,11 +66,14 @@ def init_usage_tracking() -> None:
     setattr(init_usage_tracking, "_initialized", True)
 
     try:
+ codex/restore-subscription-function-and-posts-qud580
         _ensure_sqlite_ready()
     except Exception:
         pass
 
     try:
+=======
+ main
         r.ping()
     except Exception:  # pragma: no cover - Redis недоступен, используем in-memory
         return
@@ -165,6 +174,7 @@ def _save_user_record(data: Dict[str, int | str]) -> None:
     r.sadd(_USAGE_USER_SET_KEY, user_id)
 
 
+ codex/restore-subscription-function-and-posts-qud580
 def _write_sqlite_record(data: Dict[str, int | str]) -> None:
     if not data:
         return
@@ -291,6 +301,8 @@ def _load_all_sqlite() -> List[Dict[str, int | str]]:
     return result
 
 
+=======
+ main
 def record_user_activity(
     user_id: int,
     *,
@@ -327,7 +339,10 @@ def record_user_activity(
     data["last_used_at"] = now
 
     _save_user_record(data)
+ codex/restore-subscription-function-and-posts-qud580
     _write_sqlite_record(data)
+=======
+ main
 
 
 def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, int, int, int]]:
@@ -362,6 +377,7 @@ def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, i
         )
 
     rows.sort(key=lambda item: (item[2], item[6]), reverse=True)
+ codex/restore-subscription-function-and-posts-qud580
     if rows:
         return rows[:limit]
 
@@ -385,10 +401,14 @@ def get_top_users(limit: int = 10) -> List[Tuple[int, Optional[str], int, int, i
         for record in fallback_records
     ]
     return formatted[:limit]
+=======
+    return rows[:limit]
+ main
 
 
 def get_user_stats(user_id: int) -> Optional[Dict[str, int | str]]:
     init_usage_tracking()
+ codex/restore-subscription-function-and-posts-qud580
     record = _load_user_record(user_id)
     if record:
         return record
@@ -398,6 +418,9 @@ def get_user_stats(user_id: int) -> Optional[Dict[str, int | str]]:
         _save_user_record(fallback)
         return fallback
     return None
+=======
+    return _load_user_record(user_id)
+ main
 
 
 def _format_last_used(timestamp: int) -> str:
