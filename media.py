@@ -22,6 +22,7 @@ def multimedia_menu():
         types.InlineKeyboardButton("Презентация", callback_data="mm_pptx"),
     )
     return kb
+
 # --- Точка входа из главного меню: команда «Медиа» ---
 
 def _display_name(user) -> str:
@@ -31,10 +32,6 @@ def _display_name(user) -> str:
         last_name=getattr(user, "last_name", None),
     )
 
-
-@bot.message_handler(func=lambda msg: msg.text == "Медиа")
-def open_multimedia(m):
-    bot.send_message(m.chat.id, "Выбери функцию:", reply_markup=multimedia_menu())
 
 # --- Ветки функций ---
 
