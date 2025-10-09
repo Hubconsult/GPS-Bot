@@ -4,6 +4,7 @@ import requests
 from telebot import types
 
 from settings import bot, client, TOKEN, IMAGE_MODEL, VISION_MODEL
+from usage_tracker import compose_display_name, record_user_activity
 from worker_media import enqueue_media_task
 
 # Состояние простое: что от пользователя ждём далее
@@ -22,6 +23,14 @@ def multimedia_menu():
     )
     return kb
 # --- Точка входа из главного меню: команда «Медиа» ---
+
+def _display_name(user) -> str:
+    return compose_display_name(
+        username=getattr(user, "username", None),
+        first_name=getattr(user, "first_name", None),
+        last_name=getattr(user, "last_name", None),
+    )
+
 
 @bot.message_handler(func=lambda msg: msg.text == "Медиа")
 def open_multimedia(m):
@@ -68,6 +77,11 @@ def media_text_router(m):
     if mode == "photo_gen":
         # генерация фото
         prompt = m.text.strip()
+        record_user_activity(
+            getattr(m.from_user, "id", m.chat.id),
+            category="image",
+            display_name=_display_name(m.from_user),
+        )
         try:
             result = client.images.generate(
                 model=IMAGE_MODEL,
@@ -85,18 +99,33 @@ def media_text_router(m):
         return
 
     if mode == "pdf":
+        record_user_activity(
+            getattr(m.from_user, "id", m.chat.id),
+            category="document",
+            display_name=_display_name(m.from_user),
+        )
         bot.send_message(m.chat.id, "📄 Готовлю PDF, пришлю файл чуть позже…")
         enqueue_media_task(m.chat.id, "pdf", m.text or "")
         user_media_state.pop(m.chat.id, None)
         return
 
     if mode == "excel":
+        record_user_activity(
+            getattr(m.from_user, "id", m.chat.id),
+            category="document",
+            display_name=_display_name(m.from_user),
+        )
         bot.send_message(m.chat.id, "📊 Формирую Excel, отправлю, как только соберу данные…")
         enqueue_media_task(m.chat.id, "excel", m.text or "")
         user_media_state.pop(m.chat.id, None)
         return
 
     if mode == "pptx":
+        record_user_activity(
+            getattr(m.from_user, "id", m.chat.id),
+            category="document",
+            display_name=_display_name(m.from_user),
+        )
         bot.send_message(m.chat.id, "🖼️ Собираю презентацию, скоро пришлю готовый файл…")
         enqueue_media_task(m.chat.id, "pptx", m.text or "")
         user_media_state.pop(m.chat.id, None)
@@ -118,6 +147,12 @@ def on_photo_message(m):
         img_resp.raise_for_status()
         img_b64 = base64.b64encode(img_resp.content).decode("utf-8")
         data_url = f"data:image/jpeg;base64,{img_b64}"
+
+        record_user_activity(
+            getattr(m.from_user, "id", m.chat.id),
+            category="text",
+            display_name=_display_name(m.from_user),
+        )
 
         # Vision-запрос
         resp = client.chat.completions.create(
