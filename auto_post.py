@@ -245,7 +245,7 @@ def _generate_image_bytes(image_prompt: str) -> Optional[bytes]:
         result = openai_client.images.generate(
             prompt=prompt,
             size="512x512",  # уменьшенный размер
-            quality="standard",
+            quality="high",
         )
         b64 = None
         if result.data and len(result.data) > 0:
