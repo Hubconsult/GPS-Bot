@@ -157,8 +157,8 @@ def on_photo_message(m):
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": "Опиши и проанализируй это фото кратко и по делу."},
-                    {"type": "input_image", "image_url": data_url}
+                    {"type": "text", "text": "Опиши и проанализируй это фото кратко и по делу."},
+                    {"type": "image_url", "image_url": {"url": data_url}},
                 ]
             }],
         )
